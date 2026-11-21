@@ -636,7 +636,7 @@
     var gest = ehGestor(), titulo = gest ? 'Relatórios' : 'Meu resumo';
     if (!st.rel) return carregando(titulo);
     var r = st.rel, sm = r.resumo;
-    var presets = [['mes', 'Este mês'], ['ant', 'Mês anterior'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['prox', 'Próximos 30 dias'], ['livre', 'Escolher datas']];
+    var presets = [['mes', 'Este mês'], ['ant', 'Mês anterior'], ['90', 'Últimos 90 dias'], ['livre', 'Escolher datas']];
     var barraPer = h('div', { class: 'filtros' }, presets.map(function (p) { return h('button', { 'aria-pressed': String(st.rper === p[0]), onclick: function () { st.rper = p[0]; if (p[0] === 'livre') { st.rde = st.rde || r.de; st.rate = st.rate || r.ate; render(); } else carregarRelatorio(); } }, p[1]); }));
     var livre = st.rper === 'livre' ? h('div', { class: 'form-acesso', style: 'padding:0 1.25rem' },
       campo('De', h('input', { type: 'date', value: st.rde, onchange: function (e) { st.rde = e.target.value; } })),
