@@ -452,8 +452,8 @@
       h('div', { class: 'card' }, h('b', {}, dataLonga(r.data)),
         r.itens.map(function (i) { return h('div', { class: 'item-ag' }, h('div', {}, i.ini + ' – ' + i.fim + '  ' + i.servicoNome), h('div', { class: 'p' }, 'Profissional: ' + i.profissionalNome)); }),
         h('div', { class: 'pequeno', style: 'margin-top:.4rem' }, 'Horários previstos (duração média)')),
-      h('a', { class: 'btn', href: linkGoogleAgenda(r), target: '_blank', rel: 'noopener' }, 'Adicionar ao Google Agenda'),
       blocoLembretes(true),
+      h('a', { class: 'btn', href: linkGoogleAgenda(r), target: '_blank', rel: 'noopener' }, 'Adicionar ao Google Agenda'),
       h('a', { class: 'btn sec', href: zap, target: '_blank', rel: 'noopener' }, 'Enviar protocolo para meu WhatsApp'),
       h('div', { class: 'centro' }, h('button', { class: 'link', onclick: function () { st.minhas = null; ir('meus'); } }, 'Remarcar ou cancelar')),
       h('p', { class: 'pequeno centro' }, 'Você também recebe o protocolo por mensagem.'));
