@@ -127,10 +127,7 @@
   function render() { if (st.tela === 'promo') raiz.replaceChildren(telaPromo()); else casca(TELAS[st.tela]()); }
 
   // ---------------------------------------------------------------- tela promocional (opcional, definida pelo gestor)
-  function hojeLocal() { return new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 10); }
-  function promoJaVista(pm) { try { return localStorage.getItem('agenda:promo:' + slug) === pm.id + '|' + hojeLocal(); } catch (e) { return false; } }
   function fecharPromo() {
-    try { localStorage.setItem('agenda:promo:' + slug, st.promo.id + '|' + hojeLocal()); } catch (e) { /* ignore */ }
     document.removeEventListener('keydown', teclaPromo);
     var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', st.cfg.prestador.cor || '#2b2f36');
     var destino = st.depoisPromo || 'servicos'; st.promo = null;
@@ -228,6 +225,14 @@
     render();
   }
 
+  // faixa fixa com a promoção vigente (mesma cor e texto da tela inicial); some sozinha ao fim do período
+  function faixaPromo() {
+    var pm = st.cfg && st.cfg.promocao;
+    if (!pm) return null;
+    var fundo = /^#[0-9a-f]{6}$/i.test(pm.cor) ? pm.cor : '#2b2f36';
+    return h('div', { class: 'faixa-promo', role: 'note', style: 'background:' + fundo + ';color:' + corTexto(fundo) }, pm.texto);
+  }
+
   TELAS.servicos = function () {
     var cfg = st.cfg;
     var total = 0;
@@ -249,7 +254,7 @@
     });
     return h('div', {},
       h('h1', {}, 'Escolha os serviços'),
-      passos(1), avisoEl(), cards,
+      passos(1), avisoEl(), faixaPromo(), cards,
       st.sel.length > 1 ? h('p', { class: 'pequeno' }, 'Os serviços serão feitos na ordem numerada, um após o outro.') : null,
       h('div', { class: 'resumo' },
         h('div', { class: 'pequeno' }, st.sel.length + (st.sel.length === 1 ? ' serviço' : ' serviços') + ' · tempos médios aproximados'),
@@ -463,7 +468,7 @@
       var destino = s && s.token ? 'servicos' : 'acesso';
       if (s && s.token) { st.token = s.token; st.cliente = s.cliente; }
       var pm = r.data.promocao;
-      if (pm && !promoJaVista(pm)) { st.promo = pm; st.depoisPromo = destino; ir('promo'); } else ir(destino);
+      if (pm) { st.promo = pm; st.depoisPromo = destino; ir('promo'); } else ir(destino);
     });
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register(base + 'sw.js').catch(function () { /* ignore */ });
   }

@@ -660,7 +660,7 @@
     });
     return [tituloTela('Promoções'), avisoEl(), h('div', { class: 'lista-acessos' }, itens.length ? itens : h('p', { class: 'vazio' }, 'Nenhuma promoção cadastrada.'),
       st.fpromo && !st.fpromo.id ? formPromo() : h('button', { class: 'btn sec', onclick: function () { st.fpromo = novaPromo(); st.aviso = null; render(); } }, '+ Nova promoção'),
-      h('p', { class: 'pequeno' }, 'A tela aparece ao cliente quando ele abre o app, uma vez por dia em cada aparelho, e some sozinha depois da data final. Se houver mais de uma no ar, aparece a que começou por último. É só texto informativo: não altera valores nem aplica desconto no agendamento.'))];
+      h('p', { class: 'pequeno' }, 'Durante o período, o cliente vê a tela cheia toda vez que abre o app e, depois de fechá-la, uma faixa com o mesmo texto e cor acima dos serviços. Tudo some sozinho depois da data final. Se houver mais de uma no ar, vale a que começou por último. É só texto informativo: não altera valores nem aplica desconto no agendamento.'))];
   }
 
   function render() {
