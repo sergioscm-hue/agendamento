@@ -98,6 +98,21 @@
       });
     }).catch(function () { return { ok: false, motivo: 'erro' }; });
   }
+  // ao abrir o app: se o Firebase trocou o token deste aparelho, registra o novo (evita lembretes que nunca chegam)
+  function renovarPush() {
+    if (!pushAtivo() || !st.token) return;
+    navigator.serviceWorker.ready.then(function (reg) {
+      return firebaseMessaging().then(function (m) { return m.getToken({ vapidKey: pushConfig().vapidKey, serviceWorkerRegistration: reg }); });
+    }).then(function (tok) {
+      var velho = pushToken();
+      if (!tok || tok === velho) return;
+      return chamar({ action: 'pushRegistrar', dispositivo: tok }).then(function (r) {
+        if (!r.ok) return;
+        try { localStorage.setItem(CHAVE_PUSH, tok); } catch (e) { /* ignore */ }
+        if (velho) return chamar({ action: 'pushRemover', dispositivo: velho });
+      });
+    }).catch(function () { /* ignore */ });
+  }
   function desativarPush() {
     var tok = pushToken();
     try { localStorage.removeItem(CHAVE_PUSH); } catch (e) { /* ignore */ }
@@ -117,29 +132,7 @@
       else if (pushAtivo()) itens = convite
         ? [h('b', {}, '🔔 Lembretes ativados'), h('div', { class: 'pequeno' }, 'Você receberá um aviso 24 horas e 2 horas antes do horário.')]
         : [h('b', {}, '🔔 Lembretes ativados neste aparelho'), h('div', { class: 'pequeno' }, 'Aviso 24 horas e 2 horas antes de cada horário.'),
-          h('button', { class: 'btn sec', onclick: function () { desativarPush().then(function () { desenhar(); }); } }, 'Desativar lembretes'),
-          // TESTE-LEMBRETE (remover depois do teste)
-          h('button', { class: 'btn sec', onclick: function () {
-            // gera um token novo, registra o aparelho e só então envia o teste
-            var velho = pushToken();
-            navigator.serviceWorker.ready.then(function (reg) {
-              return firebaseMessaging().then(function (m) {
-                return m.deleteToken().catch(function () { /* ignore */ }).then(function () { return m.getToken({ vapidKey: pushConfig().vapidKey, serviceWorkerRegistration: reg }); });
-              });
-            }).then(function (tok) {
-              if (!tok) { desenhar('Teste v5: o Firebase não devolveu um token novo.'); return; }
-              try { localStorage.setItem(CHAVE_PUSH, tok); } catch (e) { /* ignore */ }
-              return (velho && velho !== tok ? chamar({ action: 'pushRemover', dispositivo: velho }) : Promise.resolve()).then(function () {
-                return chamar({ action: 'pushRegistrar', dispositivo: tok });
-              }).then(function (reg) {
-                if (!reg.ok) { desenhar('Teste v5: falhou ao registrar o aparelho (' + (reg.mensagem || reg.erro || '?') + ').'); return; }
-                return chamar({ action: 'pushTeste', dispositivo: tok }).then(function (r) {
-                  var d = r.data || {}, bruto = ''; try { bruto = JSON.stringify(r).slice(0, 300); } catch (e) { /* ignore */ }
-                  desenhar(r.ok && d.enviado ? 'Teste v5: enviado. A notificação deve chegar em instantes.' : 'Teste v5: não enviado. ' + (d.motivo || r.mensagem || '') + ' ' + bruto);
-                });
-              });
-            }).catch(function (e) { desenhar('Teste v5: erro ' + (e && e.message ? e.message : e)); });
-          } }, 'Testar lembrete agora')];
+          h('button', { class: 'btn sec', onclick: function () { desativarPush().then(function () { desenhar(); }); } }, 'Desativar lembretes')];
       else if (Notification.permission === 'denied') itens = convite ? [] : [h('b', {}, 'Lembretes por notificação'), h('div', { class: 'pequeno' }, TEXTO_PUSH.negado)];
       else itens = [h('b', {}, convite ? 'Receber lembretes deste horário?' : 'Lembretes por notificação'),
         h('div', { class: 'pequeno' }, 'Avisamos 24 horas e 2 horas antes, direto no seu celular. Você pode desativar quando quiser.'),
@@ -632,7 +625,7 @@
       document.title = r.data.prestador.nome + ' — Agendamento';
       medirInstalacao();
       var s = lerSessao();
-      if (s && s.token) { st.token = s.token; st.cliente = s.cliente; }
+      if (s && s.token) { st.token = s.token; st.cliente = s.cliente; renovarPush(); }
       var abrir = function (pm) {
         var destino = st.token ? 'servicos' : 'acesso';
         st.cfg.promocao = pm;
