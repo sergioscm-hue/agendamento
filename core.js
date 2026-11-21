@@ -787,6 +787,7 @@
     const per = periodoDe(req, ctx);
     const gestor = u.papel === 'gestor';
     const profs = {}; store.rows('Profissionais').filter((p) => p.prestador_id === pr.id).forEach((p) => { profs[p.id] = p.nome; });
+    const profsAtivos = {}; store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p)).forEach((p) => { profsAtivos[p.id] = true; });
     const servs = {}; store.rows('Servicos').filter((x) => x.prestador_id === pr.id).forEach((x) => { servs[x.id] = x.nome; });
     const clis = {}; store.rows('Clientes').forEach((c) => { clis[c.id] = c; });
     const todos = store.rows('Itens').filter((i) => i.prestador_id === pr.id && itemPermitido(u, i) && (!gestor || !req.profissionalId || i.profissional_id === req.profissionalId));
@@ -802,7 +803,7 @@
     const nomeCli = (id) => (clis[id] ? clis[id].nome : '');
     return {
       de: per.de, ate: per.ate, escopo: gestor ? 'equipe' : 'proprio',
-      profissionais: gestor ? Object.keys(profs).map((id) => ({ id: id, nome: profs[id] })) : [],
+      profissionais: gestor ? Object.keys(profs).filter((id) => profsAtivos[id]).map((id) => ({ id: id, nome: profs[id] })) : [],
       resumo: {
         total: noPeriodo.length, atendimentos: validos.length,
         realizados: validos.filter((i) => i.status === 'realizado').length, faltas: validos.filter((i) => i.status === 'faltou').length,
@@ -812,7 +813,7 @@
         clientes: ids.length, novos: ids.filter((id) => primeira[id] >= per.de && primeira[id] <= per.ate).length
       },
       porServico: contar(validos, (i) => i.servico_id, (k) => servs[k] || k),
-      porProfissional: gestor ? contar(validos, (i) => i.profissional_id, (k) => profs[k] || k) : [],
+      porProfissional: gestor ? contar(validos, (i) => i.profissional_id, (k) => (profs[k] || k) + (profsAtivos[k] ? '' : ' (inativo)')) : [],
       porDiaSemana: dias,
       motivos: Object.keys(motivos).map((m) => ({ motivo: m, qtd: motivos[m] })).sort((a, b) => b.qtd - a.qtd).slice(0, 10),
       linhas: noPeriodo.slice().sort((a, b) => (a.data + a.ini).localeCompare(b.data + b.ini)).slice(0, 5000).map((i) => ({
@@ -1014,6 +1015,24 @@
       ids.filter((sid) => ja.indexOf(sid) < 0).forEach((sid) => store.insert('ProfServ', { profissional_id: id, servico_id: sid, duracao: '' }));
     }
     return { id: id, futuros: !ativoNovo ? futurosDoProf(store, pr, ctx, id).length : 0 };
+  };
+
+  // exclui um profissional que nunca teve agendamento; com histórico, o caminho é desativar
+  ACOES.painelProfissionalRemover = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const p = profsDo(store, pr).find((x) => x.id === req.id) || falha('profissional_invalido', 'Profissional não encontrado.');
+    const usos = store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.profissional_id === p.id).length;
+    if (usos) falha('profissional_com_historico', p.nome + ' tem ' + usos + ' agendamento(s) no histórico e não pode ser excluído(a), pois isso apagaria o histórico e os relatórios. Você pode desativar: deixa de aparecer para novos agendamentos e nos filtros dos relatórios.');
+    store.remove('ProfServ', (x) => x.profissional_id === p.id);
+    store.remove('Disponibilidade', (x) => x.profissional_id === p.id);
+    store.remove('Bloqueios', (x) => x.profissional_id === p.id);
+    store.rows('Usuarios').filter((x) => x.prestador_id === pr.id && x.profissional_id === p.id).forEach((x) => {
+      if (x.papel === 'gestor') store.update('Usuarios', (y) => y.id === x.id, { profissional_id: '' });
+      else store.update('Usuarios', (y) => y.id === x.id, { ativo: false });   // acesso de profissional sem agenda não faz sentido
+    });
+    store.remove('Profissionais', (x) => x.id === p.id && x.prestador_id === pr.id);
+    return { removido: true };
   };
 
   ACOES.painelServicos = (req, store, ctx) => {

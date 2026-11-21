@@ -422,6 +422,23 @@
         } }, 'Salvar'),
         h('button', { class: 'btn mini sec', onclick: function () { st.fprof = null; st.aviso = null; render(); } }, 'Cancelar')));
   }
+  function excluirProf(p) {
+    if (!confirm('Excluir "' + p.nome + '" da equipe? Esta ação não pode ser desfeita.')) return;
+    chamar({ action: 'painelProfissionalRemover', id: p.id }).then(function (r) {
+      if (r.ok) { st.aviso = { tipo: 'ok', texto: 'Profissional excluído(a).' }; carregarEquipe(); return; }
+      if (r.erro === 'profissional_com_historico') {
+        if (confirm(r.mensagem + '\n\nDesativar "' + p.nome + '" agora?')) {
+          chamar({ action: 'painelProfissionalSalvar', id: p.id, nome: p.nome, ativo: false }).then(function (r2) {
+            if (!r2.ok) { falhaAviso(r2); return; }
+            st.aviso = { tipo: 'ok', texto: p.nome + ' foi desativado(a): sai dos novos agendamentos e dos filtros dos relatórios; o histórico foi preservado.' + (r2.data && r2.data.futuros ? ' Atenção: há ' + r2.data.futuros + ' agendamento(s) futuro(s) dessa pessoa para remarcar ou cancelar.' : '') };
+            carregarEquipe();
+          });
+        }
+        return;
+      }
+      falhaAviso(r);
+    });
+  }
   function telaEquipe() {
     if (!st.equipe) return carregando('Profissionais');
     var eq = st.equipe, nomeS = {};
@@ -433,7 +450,8 @@
         h('div', { class: 'meta' }, p.servicoIds.length ? p.servicoIds.map(function (id) { return nomeS[id]; }).filter(Boolean).join(' · ') : 'Nenhum serviço vinculado'),
         p.acessos.length ? h('div', { class: 'meta' }, 'Acesso ao painel: ' + p.acessos.join(', ')) : null,
         h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', onclick: function () { st.fprof = { id: p.id, nome: p.nome, ativo: p.ativo, servicoIds: p.servicoIds.slice() }; st.aviso = null; render(); } }, 'Editar'),
-          h('button', { class: 'btn mini sec', onclick: function () { st.hprof = p.id; irParaAba('horarios'); } }, 'Horários')));
+          h('button', { class: 'btn mini sec', onclick: function () { st.hprof = p.id; irParaAba('horarios'); } }, 'Horários'),
+          h('button', { class: 'btn mini perigo', onclick: function () { excluirProf(p); } }, 'Excluir')));
     });
     return [tituloTela('Profissionais'), avisoEl(), h('div', { class: 'lista-acessos' }, itens,
       st.fprof && !st.fprof.id ? formProf() : h('button', { class: 'btn sec', onclick: function () { st.fprof = { id: '', nome: '', ativo: true, servicoIds: [] }; st.aviso = null; render(); } }, '+ Novo profissional'),
