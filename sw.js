@@ -28,7 +28,7 @@ self.addEventListener('push', function (e) {
   var d = p.data || p, n = p.notification || {};
   var slug = d.slug || '';
   var titulo = d.titulo || n.title || 'Lembrete de agendamento';
-  var opcoes = { body: d.corpo || n.body || '', tag: d.tag || undefined, data: { slug: slug }, icon: slug ? 'p/' + slug + '/icon-192.png' : undefined };
+  var opcoes = { body: d.corpo || n.body || '', tag: d.tag || undefined, data: { slug: slug }, icon: slug ? 'p/' + slug + '/icon-192.png' : undefined, badge: slug ? 'p/' + slug + '/badge-96.png' : undefined };
   e.waitUntil(self.registration.showNotification(titulo, opcoes));
 });
 self.addEventListener('notificationclick', function (e) {
