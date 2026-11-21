@@ -563,6 +563,7 @@
       h('div', { class: 'card' }, h('b', {}, st.cliente.nome), h('div', { class: 'pequeno' }, telFmt(st.cliente.telefone))),
       blocoOfertas(),
       blocoLembretes(false),
+      h('div', { class: 'card' }, h('b', {}, 'Cor do app'), h('div', { class: 'pequeno' }, 'Vale só neste aparelho.'), Tema.seletor(st.cfg.prestador.cor || '#2b2f36')),
       st.instalar ? h('button', { class: 'btn', onclick: instalarApp }, 'Instalar o app no celular') : null,
       h('a', { class: 'btn sec', href: base + 'politica.html', target: '_blank', rel: 'noopener' }, 'Política de Privacidade'),
       h('a', { class: 'btn sec', href: base + 'termos.html', target: '_blank', rel: 'noopener' }, 'Termos de Uso'),
@@ -595,9 +596,7 @@
       }
       st.cfg = r.data;
       var cor = r.data.prestador.cor || '#2b2f36';
-      document.documentElement.style.setProperty('--accent', cor);
-      document.documentElement.style.setProperty('--on-accent', corTexto(cor));
-      var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', cor);
+      Tema.aplicar(cor);
       document.title = r.data.prestador.nome + ' — Agendamento';
       medirInstalacao();
       var s = lerSessao();

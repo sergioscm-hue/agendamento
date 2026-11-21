@@ -1,5 +1,5 @@
 :root {
-  --accent: #2b2f36; --on-accent: #fff;
+  --accent: #2b2f36; --on-accent: #fff; --accent-ink: var(--accent);
   --ink: #2b2f36; --muted: #7a808a; --line: #d9dce1; --soft: #f3f4f6; --chip: #e6e8ec;
   --ok: #1f7a4d; --err: #b3261e; --warn: #8a5a00;
 }
@@ -35,7 +35,7 @@ input:focus, select:focus, button:focus-visible { outline: 3px solid color-mix(i
 
 /* botões */
 .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: .6rem 1rem; border-radius: 12px; border: 1.8px solid var(--accent); background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; margin-top: .65rem; }
-.btn.sec { background: #fff; color: var(--accent); }
+.btn.sec { background: #fff; color: var(--accent-ink); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn.perigo { background: #fff; color: var(--err); border-color: var(--err); }
 .btn.mini { width: auto; min-height: 38px; padding: .3rem .9rem; font-size: .85rem; margin-top: 0; }
@@ -236,3 +236,11 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 /* tela de promoção: logo e nome do estabelecimento no topo, centralizados */
 .promo-marca { text-align: center; padding: 0 1.6rem; margin-top: -2.6rem; }
 .promo-nome { margin-top: .5rem; font-size: 1.25rem; font-weight: 700; }
+
+/* escolha da cor do app (por aparelho) */
+.tema-cores { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .6rem; }
+.tema-cor { display: flex; flex-direction: column; align-items: center; gap: .25rem; min-width: 56px; padding: .2rem; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; }
+.tema-bola { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; border: 2px solid var(--line); }
+.tema-cor.on .tema-bola { border-color: var(--ink); }
+.tema-nome { font-size: .78rem; }
+.tema-faixa { padding: .7rem 1.25rem; border-bottom: 1px solid var(--line); background: #fff; }

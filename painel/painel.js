@@ -228,19 +228,23 @@
       return h('button', { class: 'card-inicio', onclick: function () { irParaAba(id); } }, h('span', { class: 'ci-icone', 'aria-hidden': 'true' }, ICONES[id]), h('span', { class: 'ci-rotulo' }, ROTULOS[id]));
     }));
   }
+  function faixaTema() {
+    return st.temaAberto ? h('div', { class: 'tema-faixa' }, h('b', {}, 'Cor do app'), h('span', { class: 'pequeno' }, ' (vale só neste aparelho)'), Tema.seletor('#2b2f36')) : null;
+  }
   function barra() {
     var quem = st.usuario ? st.usuario.nome + (ehGestor() ? ' (gestor)' : '') : '';
     var topo = h('div', { class: 'barra' }, h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
+      h('button', { class: 'btn mini sec', 'aria-label': 'Cor do app', onclick: function () { st.temaAberto = !st.temaAberto; render(); } }, '🎨'),
       h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
       h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
     var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
     var rot = function (id) { return !ehGestor() ? ({ agenda: 'Agenda', relatorios: 'Resumo', horarios: 'Horário' })[id] : ROTULOS[id]; };
     if (ehGestor()) {
       // gestor: a navegação é a tela inicial de cartões; nas demais telas, um botão volta a ela
-      return st.aba === 'inicio' ? [topo] : [topo, h('div', { class: 'voltar-inicio' }, h('button', { class: 'btn mini sec', onclick: function () { irParaAba('inicio'); } }, '‹ Início'), h('strong', {}, ROTULOS[st.aba] || ''))];
+      return st.aba === 'inicio' ? [topo, faixaTema()] : [topo, faixaTema(), h('div', { class: 'voltar-inicio' }, h('button', { class: 'btn mini sec', onclick: function () { irParaAba('inicio'); } }, '‹ Início'), h('strong', {}, ROTULOS[st.aba] || ''))];
     }
     var abas = ids.map(function (id) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { irParaAba(id); } }, rot(id)); });
-    return [topo, h('div', { class: 'abas' + (abas.length <= 3 ? ' tres' : ''), role: 'navigation' }, abas)];
+    return [topo, faixaTema(), h('div', { class: 'abas' + (abas.length <= 3 ? ' tres' : ''), role: 'navigation' }, abas)];
   }
 
   function telaAgenda() {
@@ -809,6 +813,7 @@
     raiz.replaceChildren(h('div', { class: 'painel' }, barra(), corpo));
   }
 
+  Tema.aplicar('#2b2f36');
   render();
   Api.chamar({ action: 'config', slug: slug }).then(function (r) { if (r.ok) { st.marca = { nome: r.data.prestador.nome, logo: r.data.prestador.logo }; if (!st.token) render(); } });
   if (st.token) carregar();
