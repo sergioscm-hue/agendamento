@@ -96,7 +96,7 @@
     usuario.addEventListener('keydown', function (e) { if (e.key === 'Enter') pin.focus(); });
     return h('div', { style: 'max-width:380px;margin:0 auto;padding:2rem 1.25rem' },
       marcaLogin(),
-      h('h1', {}, 'Painel da equipe'), h('p', { class: 'sub' }, 'Entre com o seu usuário e o seu PIN.'),
+      h('h1', { class: 'centro', style: 'margin-top:1.6rem' }, 'Painel da equipe'), h('p', { class: 'sub centro' }, 'Entre com o seu usuário e o seu PIN.'),
       avisoEl(), h('label', { for: 'usuario' }, 'Usuário'), usuario, h('label', { for: 'pin' }, 'PIN'), pin,
       h('button', { class: 'btn', onclick: entrar }, 'Entrar'),
       h('p', { class: 'pequeno', style: 'margin-top:1rem' }, 'Esqueceu o PIN? Peça ao gestor para redefini-lo. Primeiro acesso, antes de existirem usuários: deixe o usuário em branco e use o PIN do estabelecimento.'));
