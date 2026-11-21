@@ -7,6 +7,13 @@
   var raiz = document.getElementById('painel');
   var slug = new URLSearchParams(location.search).get('p') || 'demo';
   var CHAVE = 'agenda:painel:' + slug;
+  // instalável: manifesto próprio do estabelecimento (nome, ícone e endereço de abertura), escolhido pelo ?p=
+  if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+    var lk = document.createElement('link'); lk.rel = 'manifest'; lk.href = '../p/' + slug + '/painel.webmanifest'; document.head.appendChild(lk);
+    var ic = document.createElement('link'); ic.rel = 'apple-touch-icon'; ic.href = '../p/' + slug + '/painel-192.png'; document.head.appendChild(ic);
+    var tc = document.createElement('meta'); tc.name = 'theme-color'; tc.content = '#2b2f36'; document.head.appendChild(tc);
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('../sw.js').catch(function () { /* ignore */ });
+  }
   var DIAS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
   function telFmt(t) {
     var d = String(t || '').replace(/^55/, '');
