@@ -24,7 +24,7 @@
     Bloqueios: ['profissional_id', 'data', 'inicio', 'fim', 'motivo'],
     Clientes: ['id', 'telefone', 'nome', 'criado_em', 'consent_versao', 'consent_em'],
     Vinculos: ['cliente_id', 'prestador_id', 'desde'],
-    Reservas: ['protocolo', 'prestador_id', 'cliente_id', 'data', 'status', 'criado_em', 'cancelado_em', 'cancelado_por', 'cancelado_motivo'],
+    Reservas: ['protocolo', 'prestador_id', 'cliente_id', 'data', 'status', 'criado_em', 'cancelado_em', 'cancelado_por', 'cancelado_motivo', 'mensagem_cliente', 'mensagem_em'],
     Itens: ['id', 'protocolo', 'prestador_id', 'profissional_id', 'servico_id', 'cliente_id', 'data', 'ini', 'fim', 'ocup_fim', 'status', 'cancelado_motivo'],
     Codigos: ['telefone', 'codigo_hash', 'expira_em', 'tentativas'],
     Mensagens: ['quando', 'telefone', 'canal', 'texto', 'status'],
@@ -41,7 +41,7 @@
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
   const COL_DATA = ['data', 'de', 'ate'];
   const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate', 'ordem'];
-  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos', 'publico', 'aniv', 'datas', 'aceite_em', 'aceite_versao', 'token', 'item_id', 'tipo', 'enviado_em'];
+  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos', 'publico', 'aniv', 'datas', 'aceite_em', 'aceite_versao', 'token', 'item_id', 'tipo', 'enviado_em', 'mensagem_cliente', 'mensagem_em'];
 
   // ---------- utilidades ----------
   class ErroApi extends Error {
@@ -649,12 +649,29 @@
     const { pr, sessao } = autenticar(req, store, ctx, 'cli');
     const ag = ctx.agora();
     const todas = store.rows('Reservas').filter((r) => r.prestador_id === pr.id && r.cliente_id === sessao.cid);
-    const lista = todas.map((r) => ({ protocolo: r.protocolo, data: r.data, status: r.status, itens: reservaComItens(store, r.protocolo) }));
+    const lista = todas.map((r) => ({ protocolo: r.protocolo, data: r.data, status: r.status, mensagem: r.mensagem_cliente || '', mensagemEm: r.mensagem_em || '', itens: reservaComItens(store, r.protocolo) }));
     const futura = (r) => r.data > ag.data || (r.data === ag.data && min(r.itens[0] ? r.itens[0].ini : '00:00') >= ag.min);
     return {
       proximas: lista.filter((r) => r.status === 'agendado' && futura(r)).sort((a, b) => (a.data + a.itens[0].ini).localeCompare(b.data + b.itens[0].ini)),
       anteriores: lista.filter((r) => !(r.status === 'agendado' && futura(r))).sort((a, b) => b.data.localeCompare(a.data)).slice(0, 10)
     };
+  };
+
+  // mensagem curta do cliente para o profissional (uma por reserva); texto puro, até 300 caracteres; vazio apaga
+  const MSG_MAX = 300;
+  ACOES.reservaMensagem = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    const r = store.rows('Reservas').find((x) => x.protocolo === req.protocolo && x.prestador_id === pr.id);
+    if (!r || r.cliente_id !== sessao.cid) falha('reserva_inexistente', 'Reserva não encontrada.');
+    if (r.status !== 'agendado') falha('reserva_ja_cancelada', 'Esta reserva não está ativa.');
+    const ag = ctx.agora();
+    if (r.data < ag.data) falha('reserva_passada', 'Esta reserva já passou.');
+    // tira caracteres de controle e junta espaços e quebras de linha
+    const texto = String(req.texto == null ? '' : req.texto).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (Array.from(texto).length > MSG_MAX) falha('mensagem_longa', 'A mensagem pode ter até ' + MSG_MAX + ' caracteres.');
+    const quando = texto ? ag.data + ' ' + hm(ag.min) : '';
+    store.update('Reservas', (x) => x.protocolo === req.protocolo, { mensagem_cliente: texto, mensagem_em: quando });
+    return { protocolo: req.protocolo, mensagem: texto, mensagemEm: quando };
   };
 
   function cancelarInterno(store, ctx, pr, protocolo, quem, respeitarAntecedencia, motivo) {
@@ -749,6 +766,7 @@
     const servs = {}; store.rows('Servicos').forEach((s) => { servs[s.id] = s.nome; });
     const clis = {}; store.rows('Clientes').forEach((c) => { clis[c.id] = c; });
     const itens = store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.data === req.data);
+    const msgs = {}; store.rows('Reservas').forEach((x) => { if (x.mensagem_cliente) msgs[x.protocolo] = x.mensagem_cliente; });
     const bloqueios = store.rows('Bloqueios').filter((b) => b.data === req.data && (b.profissional_id === '*' || profs.some((p) => p.id === b.profissional_id)));
     return {
       data: req.data, papel: u.papel, podeCancelar: u.canc, usuarioNome: u.nome,
@@ -757,6 +775,7 @@
         itens: itens.filter((i) => i.profissional_id === p.id).sort((a, b) => a.ini.localeCompare(b.ini)).map((i) => ({
           id: i.id, protocolo: i.protocolo, ini: i.ini, fim: i.fim, status: i.status, servico: servs[i.servico_id],
           cliente: clis[i.cliente_id] ? clis[i.cliente_id].nome : '', telefone: clis[i.cliente_id] ? String(clis[i.cliente_id].telefone) : '',
+          mensagem: msgs[i.protocolo] || '',
           outrosServicos: store.rows('Itens').filter((o) => o.protocolo === i.protocolo && o.id !== i.id && o.status !== 'cancelado').length
         })),
         bloqueios: bloqueios.filter((b) => b.profissional_id === p.id || b.profissional_id === '*').map((b) => ({ ini: b.inicio, fim: b.fim, motivo: b.motivo }))

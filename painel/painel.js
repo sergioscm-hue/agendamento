@@ -193,6 +193,7 @@
         h('a', { href: 'tel:+' + i.telefone }, telFmt(i.telefone)), ' · ',
         h('a', { href: 'https://wa.me/' + i.telefone, target: '_blank', rel: 'noopener' }, 'WhatsApp')),
       h('div', { class: 'meta' }, 'Protocolo ' + i.protocolo),
+      i.mensagem ? h('div', { class: 'msg-cliente' }, h('b', {}, '💬 Mensagem do cliente: '), i.mensagem) : null,
       botoes, cancelando ? caixaCancelamento(i) : null);
   }
   function marcar(id, status) { chamar({ action: 'painelStatus', itemId: id, status: status }).then(function (r) { if (!r.ok) st.aviso = { tipo: 'erro', texto: r.mensagem }; carregar(); }); }

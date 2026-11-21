@@ -245,3 +245,9 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .tema-cor.on .tema-bola { border-color: var(--ink); }
 .tema-nome { font-size: .78rem; }
 .tema-faixa { padding: .7rem 1.25rem; border-bottom: 1px solid var(--line); background: #fff; }
+
+/* mensagem do cliente para o profissional */
+.mensagem textarea { width: 100%; box-sizing: border-box; margin-top: .4rem; resize: vertical; }
+.mensagem .contador { text-align: right; }
+.mensagem .msg-texto { margin: .4rem 0; white-space: pre-wrap; word-break: break-word; }
+.msg-cliente { margin: .35rem 0; padding: .45rem .6rem; border-radius: 10px; background: #f3f4f6; font-size: .92rem; word-break: break-word; }

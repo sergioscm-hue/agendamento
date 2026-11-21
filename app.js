@@ -122,6 +122,47 @@
     });
   }
   var TEXTO_PUSH = { negado: 'As notificações estão bloqueadas para este app. Para receber lembretes, libere-as nas configurações do navegador ou do aparelho.', adiado: 'Você não permitiu as notificações.', erro: 'Não foi possível ativar os lembretes agora. Tente novamente.', nao_suportado: 'Este aparelho ou navegador não permite lembretes por notificação.' };
+  // mensagem do cliente para o profissional (por reserva, até 300 caracteres)
+  var MSG_MAX = 300;
+  function blocoMensagem(reserva, aberto) {
+    var el = h('div', { class: 'card mensagem' });
+    var est = { salva: reserva.mensagem || '', em: reserva.mensagemEm || '', editando: !reserva.mensagem && aberto !== false, aviso: null, aguarde: false };
+    function enviar(texto) {
+      est.aguarde = true; est.aviso = null; desenhar();
+      chamar({ action: 'reservaMensagem', protocolo: reserva.protocolo, texto: texto }).then(function (r) {
+        est.aguarde = false;
+        if (!r.ok) { est.aviso = r.mensagem || 'Não foi possível enviar a mensagem agora.'; desenhar(); return; }
+        est.salva = r.data.mensagem; est.em = r.data.mensagemEm; est.editando = !est.salva;
+        reserva.mensagem = est.salva; reserva.mensagemEm = est.em;
+        est.aviso = est.salva ? null : 'Mensagem apagada.';
+        desenhar();
+      });
+    }
+    function desenhar() {
+      var itens = [h('b', {}, 'Mensagem para o profissional')];
+      if (est.salva && !est.editando) {
+        itens.push(h('div', { class: 'msg-texto' }, est.salva),
+          h('div', { class: 'pequeno' }, 'Enviada' + (est.em ? ' em ' + Core.dataBR(est.em.slice(0, 10)) + ' às ' + est.em.slice(11, 16) : '') + '.'),
+          h('div', { class: 'acoes' },
+            h('button', { class: 'btn mini sec', onclick: function () { est.editando = true; desenhar(); } }, 'Editar'),
+            h('button', { class: 'btn mini perigo', disabled: est.aguarde, onclick: function () { enviar(''); } }, 'Apagar')));
+      } else {
+        var campo = h('textarea', { rows: 3, maxlength: MSG_MAX, 'aria-label': 'Mensagem para o profissional', placeholder: 'Ex.: prefiro o corte mais curto nas laterais' });
+        campo.value = est.salva;
+        var cont = h('div', { class: 'pequeno contador' }, campo.value.length + '/' + MSG_MAX);
+        campo.addEventListener('input', function () { cont.textContent = campo.value.length + '/' + MSG_MAX; });
+        itens.push(h('div', { class: 'pequeno' }, 'Opcional. Não informe dados de saúde nem documentos.'), campo, cont,
+          h('div', { class: 'acoes' },
+            h('button', { class: 'btn mini', disabled: est.aguarde, onclick: function () { enviar(campo.value); } }, est.salva ? 'Salvar alteração' : 'Enviar mensagem'),
+            est.salva ? h('button', { class: 'btn mini sec', onclick: function () { est.editando = false; est.aviso = null; desenhar(); } }, 'Cancelar') : null));
+      }
+      if (est.aviso) itens.push(h('div', { class: 'msg ' + (est.salva || est.aviso === 'Mensagem apagada.' ? 'ok' : 'erro'), role: 'alert' }, est.aviso));
+      el.replaceChildren.apply(el, itens);
+    }
+    desenhar();
+    return el;
+  }
+
   // cartão para a confirmação e para o Perfil
   function blocoLembretes(convite) {
     if (!pushConfig()) return null;
@@ -480,6 +521,7 @@
       h('div', { class: 'card' }, h('b', {}, dataLonga(r.data)),
         r.itens.map(function (i) { return h('div', { class: 'item-ag' }, h('div', {}, i.ini + ' – ' + i.fim + '  ' + i.servicoNome), h('div', { class: 'p' }, 'Profissional: ' + i.profissionalNome)); }),
         h('div', { class: 'pequeno', style: 'margin-top:.4rem' }, 'Horários previstos (duração média)')),
+      blocoMensagem(r),
       blocoLembretes(true),
       h('a', { class: 'btn', href: linkGoogleAgenda(r), target: '_blank', rel: 'noopener' }, 'Adicionar ao Google Agenda'),
       h('a', { class: 'btn sec', href: zap, target: '_blank', rel: 'noopener' }, 'Enviar protocolo para meu WhatsApp'),
@@ -501,6 +543,7 @@
       h('div', { class: 'topo-r' }, h('b', {}, dataLonga(r.data)), r.status !== 'agendado' ? h('span', { class: 'badge ' + r.status }, r.status) : null),
       h('div', { class: 'pequeno' }, 'Protocolo ' + r.protocolo),
       r.itens.map(function (i) { return h('div', { class: 'item-ag' }, h('div', {}, i.ini + ' – ' + i.fim + '  ' + i.servicoNome), h('div', { class: 'p' }, 'Profissional: ' + i.profissionalNome)); }),
+      podeCancelar && r.status === 'agendado' ? blocoMensagem(r, false) : null,
       podeCancelar ? h('div', { class: 'acoes' },
         confirmando
           ? [h('span', { class: 'pequeno' }, 'Cancelar este agendamento?'),
