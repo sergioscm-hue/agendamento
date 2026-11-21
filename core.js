@@ -458,7 +458,7 @@
     const token = String(req.dispositivo || '');
     if (!store.rows('Dispositivos').some((d) => d.token === token && d.cliente_id === sessao.cid && d.prestador_id === pr.id)) falha('sem_aparelho', 'Ative os lembretes neste aparelho antes de testar.');
     const r = ctx.push ? ctx.push(token, { titulo: pr.nome, slug: pr.slug, tag: 'teste-' + Date.now(), corpo: 'Teste: seu horário é hoje às 16:00 — Corte + Barba.' }) : 'erro';
-    return { enviado: r === 'ok' };
+    return { enviado: r === 'ok', motivo: r === 'ok' ? '' : String((ctx.pushErro || r)) };
   };
 
   // horário de Brasília (UTC-3, sem horário de verão desde 2019) em milissegundos

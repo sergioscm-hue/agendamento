@@ -121,8 +121,12 @@
           // TESTE-LEMBRETE (remover depois do teste)
           h('button', { class: 'btn sec', onclick: function () {
             // registra de novo o aparelho (se a linha sumiu da planilha) e só então envia o teste
-            chamar({ action: 'pushRegistrar', dispositivo: pushToken() }).then(function () { return chamar({ action: 'pushTeste', dispositivo: pushToken() }); })
-              .then(function (r) { desenhar(r.ok && r.enviado ? 'Teste enviado: a notificação deve chegar em instantes.' : (r.mensagem || 'Não foi possível enviar o teste agora.')); });
+            chamar({ action: 'pushRegistrar', dispositivo: pushToken() }).then(function (reg) {
+              if (!reg.ok) { desenhar('Teste v3: falhou ao registrar o aparelho (' + (reg.mensagem || reg.erro || '?') + ').'); return; }
+              return chamar({ action: 'pushTeste', dispositivo: pushToken() }).then(function (r) {
+                desenhar(r.ok && r.enviado ? 'Teste v3: enviado. A notificação deve chegar em instantes.' : 'Teste v3: ' + (r.mensagem || r.motivo || 'não foi possível enviar.'));
+              });
+            });
           } }, 'Testar lembrete agora')];
       else if (Notification.permission === 'denied') itens = convite ? [] : [h('b', {}, 'Lembretes por notificação'), h('div', { class: 'pequeno' }, TEXTO_PUSH.negado)];
       else itens = [h('b', {}, convite ? 'Receber lembretes deste horário?' : 'Lembretes por notificação'),
