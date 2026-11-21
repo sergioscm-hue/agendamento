@@ -72,6 +72,14 @@
   var ehGestor = function () { return st.usuario && st.usuario.papel === 'gestor'; };
 
   // ------------------------------------------------------------ login
+  // logo e nome do estabelecimento acima do título (dados públicos, vindos da configuração do app)
+  function marcaLogin() {
+    var m = st.marca;
+    if (!m) return null;
+    return h('div', { class: 'centro', style: 'margin-bottom:.6rem' },
+      h('div', { class: 'logo', style: 'width:84px;height:84px;margin:.2rem auto;font-size:1.6rem;border-radius:18px' }, m.logo ? h('img', { src: m.logo, alt: '' }) : (m.nome || '?')[0]),
+      h('div', { style: 'font-size:1.25rem;font-weight:700' }, m.nome));
+  }
   function telaLogin() {
     var usuario = h('input', { type: 'text', id: 'usuario', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'ex.: ana', value: st.login.usuario, oninput: function (e) { st.login.usuario = e.target.value; } });
     var pin = h('input', { type: 'password', id: 'pin', inputmode: 'numeric', autocomplete: 'current-password', placeholder: '6 dígitos', value: st.login.pin, oninput: function (e) { st.login.pin = e.target.value; } });
@@ -87,6 +95,7 @@
     pin.addEventListener('keydown', function (e) { if (e.key === 'Enter') entrar(); });
     usuario.addEventListener('keydown', function (e) { if (e.key === 'Enter') pin.focus(); });
     return h('div', { style: 'max-width:380px;margin:0 auto;padding:2rem 1.25rem' },
+      marcaLogin(),
       h('h1', {}, 'Painel da equipe'), h('p', { class: 'sub' }, 'Entre com o seu usuário e o seu PIN.'),
       avisoEl(), h('label', { for: 'usuario' }, 'Usuário'), usuario, h('label', { for: 'pin' }, 'PIN'), pin,
       h('button', { class: 'btn', onclick: entrar }, 'Entrar'),
@@ -783,6 +792,7 @@
   }
 
   render();
+  Api.chamar({ action: 'config', slug: slug }).then(function (r) { if (r.ok) { st.marca = { nome: r.data.prestador.nome, logo: r.data.prestador.logo }; if (!st.token) render(); } });
   if (st.token) carregar();
   setInterval(function () { if (st.token && st.aba === 'agenda' && st.ag && !st.cancel && !document.hidden) carregar(); }, 60000);
 })();
