@@ -471,15 +471,64 @@
         } }, 'Salvar'),
         h('button', { class: 'btn mini sec', onclick: function () { st.fsvc = null; st.aviso = null; render(); } }, 'Cancelar')));
   }
+  // reordenação: setas (teclado e toque) e alça de arrastar (ponteiro/toque)
+  function salvarOrdemServicos(focoId, sentido) {
+    chamar({ action: 'painelServicosOrdenar', ids: st.svc.servicos.map(function (x) { return x.id; }) }).then(function (r) {
+      if (!r.ok) { falhaAviso(r); carregarServicos(); return; }
+      st.aviso = null;
+      if (st.arrastando) return;                          // não troca a tela no meio de um arrasto
+      render();
+      if (focoId) { var b = raiz.querySelector('[data-sid="' + focoId + '"] .mover-' + sentido); if (b && !b.disabled) b.focus(); else { b = raiz.querySelector('[data-sid="' + focoId + '"] .mover'); if (b) b.focus(); } }
+    });
+  }
+  function moverServico(de, para) {
+    var l = st.svc.servicos;
+    if (para < 0 || para >= l.length || de === para) return;
+    var it = l.splice(de, 1)[0]; l.splice(para, 0, it);
+    st.aviso = null; render();
+    salvarOrdemServicos(it.id, para > de ? 'baixo' : 'cima');
+  }
+  function iniciarArrasto(e, idx) {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    var alca = e.currentTarget, card = alca.closest('[data-sid]');
+    var cards = Array.prototype.slice.call(raiz.querySelectorAll('[data-sid]'));
+    var meios = cards.map(function (c) { var r = c.getBoundingClientRect(); return r.top + r.height / 2; });
+    var y0 = e.clientY, alvo = idx;
+    try { alca.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+    card.classList.add('arrastando'); st.arrastando = true;
+    var mover = function (ev) {
+      card.style.transform = 'translateY(' + (ev.clientY - y0) + 'px)';
+      var n = 0; meios.forEach(function (m, i) { if (i !== idx && ev.clientY > m) n++; });
+      alvo = n;
+      cards.forEach(function (c, i) { c.classList.toggle('alvo', i !== idx && i === alvo); });
+    };
+    var fim = function () {
+      alca.removeEventListener('pointermove', mover); alca.removeEventListener('pointerup', fim); alca.removeEventListener('pointercancel', cancelar);
+      card.classList.remove('arrastando'); card.style.transform = ''; st.arrastando = false;
+      cards.forEach(function (c) { c.classList.remove('alvo'); });
+      moverServico(idx, alvo);
+    };
+    var cancelar = function () {
+      alca.removeEventListener('pointermove', mover); alca.removeEventListener('pointerup', fim); alca.removeEventListener('pointercancel', cancelar);
+      card.classList.remove('arrastando'); card.style.transform = ''; st.arrastando = false; cards.forEach(function (c) { c.classList.remove('alvo'); });
+    };
+    alca.addEventListener('pointermove', mover); alca.addEventListener('pointerup', fim); alca.addEventListener('pointercancel', cancelar);
+  }
   function telaServicos() {
     if (!st.svc) return carregando('Serviços');
     var sv = st.svc, nomeP = {};
     sv.profissionais.forEach(function (p) { nomeP[p.id] = p.nome; });
-    var itens = sv.servicos.map(function (x) {
+    var total = sv.servicos.length;
+    var itens = sv.servicos.map(function (x, i) {
       if (st.fsvc && st.fsvc.id === x.id) return formServico();
       var profs = x.profissionais.filter(function (p) { return nomeP[p.id]; });
-      return h('div', { class: 'usuario' + (x.ativo ? '' : ' inativo') },
-        h('div', { class: 'topo' }, h('strong', {}, x.nome), !x.ativo ? h('span', { class: 'badge cancelado' }, 'inativo') : null,
+      var ordenar = total > 1 && !st.fsvc ? h('div', { class: 'ordenar' },
+        h('button', { class: 'mover arrastar', type: 'button', 'aria-label': 'Arrastar ' + x.nome + ' para outra posição', title: 'Arraste para reordenar', onpointerdown: function (e) { iniciarArrasto(e, i); } }, '⠿'),
+        h('button', { class: 'mover mover-cima', type: 'button', disabled: i === 0, 'aria-label': 'Mover ' + x.nome + ' para cima', onclick: function () { moverServico(i, i - 1); } }, '▲'),
+        h('button', { class: 'mover mover-baixo', type: 'button', disabled: i === total - 1, 'aria-label': 'Mover ' + x.nome + ' para baixo', onclick: function () { moverServico(i, i + 1); } }, '▼')) : null;
+      return h('div', { class: 'usuario' + (x.ativo ? '' : ' inativo'), 'data-sid': x.id },
+        h('div', { class: 'topo' }, ordenar, h('strong', {}, x.nome), !x.ativo ? h('span', { class: 'badge cancelado' }, 'inativo') : null,
           x.ativo && !profs.length ? h('span', { class: 'badge cancelado' }, 'sem profissional') : null),
         h('div', { class: 'meta' }, 'aprox. ' + fmtDur(x.duracao) + (x.preparo ? ' · preparo ' + x.preparo + ' min' : '')),
         h('div', { class: 'meta' }, profs.length ? profs.map(function (p) { return nomeP[p.id] + (p.duracao ? ' (' + fmtDur(p.duracao) + ')' : ''); }).join(' · ') : 'Ninguém realiza este serviço'),
@@ -489,7 +538,7 @@
     });
     return [tituloTela('Serviços'), avisoEl(), h('div', { class: 'lista-acessos' }, itens,
       st.fsvc && !st.fsvc.id ? formServico() : h('button', { class: 'btn sec', onclick: function () { st.fsvc = { id: '', nome: '', duracao: 30, preparo: 0, ativo: true, profs: {} }; st.aviso = null; render(); } }, '+ Novo serviço'),
-      h('p', { class: 'pequeno' }, 'Os tempos são médios e aparecem para o cliente como "aprox.". Mudanças valem só para novos agendamentos.'))];
+      h('p', { class: 'pequeno' }, 'Use ▲ ▼ ou arraste pela alça ⠿ para ordenar: a mesma ordem aparece para o cliente. Os tempos são médios e aparecem como "aprox."; mudanças valem só para novos agendamentos.'))];
   }
 
   // ------------------------------------------------------------ relatórios e clientes

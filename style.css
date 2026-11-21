@@ -202,3 +202,9 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .ofertas label.chk input { width: 22px; height: 22px; flex: none; }
 .ofertas .btn { margin-top: .7rem; }
 .ofertas label.chk { color: var(--ink); }
+.ordenar { display: flex; gap: .3rem; margin-right: .3rem; flex: none; }
+.ordenar .mover { width: 40px; height: 40px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; font-size: .95rem; line-height: 1; cursor: pointer; color: var(--ink); }
+.ordenar .mover:disabled { opacity: .35; cursor: default; }
+.ordenar .arrastar { cursor: grab; touch-action: none; font-size: 1.2rem; }
+.usuario.arrastando { position: relative; z-index: 5; box-shadow: 0 6px 18px rgba(0,0,0,.2); background: #fff; opacity: .95; }
+.usuario.alvo { outline: 2px dashed var(--accent); outline-offset: 2px; }

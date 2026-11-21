@@ -18,7 +18,7 @@
   const TABELAS = {
     Prestadores: ['id', 'slug', 'nome', 'cor', 'logo', 'pin_hash', 'folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'verificacao', 'ativo'],
     Profissionais: ['id', 'prestador_id', 'nome', 'ativo'],
-    Servicos: ['id', 'prestador_id', 'nome', 'duracao', 'preparo', 'ativo'],
+    Servicos: ['id', 'prestador_id', 'nome', 'duracao', 'preparo', 'ativo', 'ordem'],
     ProfServ: ['profissional_id', 'servico_id', 'duracao'],
     Disponibilidade: ['profissional_id', 'dia_semana', 'inicio', 'fim'],
     Bloqueios: ['profissional_id', 'data', 'inicio', 'fim', 'motivo'],
@@ -37,7 +37,7 @@
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
   const COL_DATA = ['data', 'de', 'ate'];
-  const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate'];
+  const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate', 'ordem'];
   const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos', 'publico', 'aniv', 'datas', 'aceite_em', 'aceite_versao'];
 
   // ---------- utilidades ----------
@@ -357,7 +357,7 @@
   const servicosOferecidos = (store, pr) => {
     const profs = store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p));
     const ps = store.rows('ProfServ');
-    return store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).map((x) => ({
+    return store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).sort(ordemServ).map((x) => ({
       id: x.id, nome: x.nome, duracao: numCfg(x.duracao, 30), preparo: numCfg(x.preparo, 0),
       profissionais: ps.filter((y) => y.servico_id === x.id && profs.some((p) => p.id === y.profissional_id)).map((y) => y.profissional_id)
     })).filter((x) => x.profissionais.length);
@@ -870,7 +870,7 @@
     const hoje = ctx.agora().data;
     return {
       promocoes: store.rows('Promocoes').filter((x) => x.prestador_id === pr.id).sort((a, b) => b.de.localeCompare(a.de)).map((x) => promoPublica(x, hoje)),
-      servicos: store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).map((x) => ({ id: x.id, nome: x.nome }))
+      servicos: store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).sort(ordemServ).map((x) => ({ id: x.id, nome: x.nome }))
     };
   };
 
@@ -972,7 +972,10 @@
   const proximoId = (rows, letra) => letra + (rows.reduce((m, x) => Math.max(m, Number(String(x.id).replace(/\D/g, '')) || 0), 0) + 1);
   const durOk = (v) => Number.isInteger(Number(v)) && Number(v) >= 5 && Number(v) <= 480;
   const profsDo = (store, pr) => store.rows('Profissionais').filter((p) => p.prestador_id === pr.id);
-  const servsDo = (store, pr) => store.rows('Servicos').filter((x) => x.prestador_id === pr.id);
+  // ordem definida pelo gestor; serviços sem posição (antigos ou novos) vão ao fim, na ordem de cadastro
+  const idNum = (r) => Number(String(r.id).replace(/\D/g, '')) || 0;
+  const ordemServ = (a, b) => (Number(a.ordem) || 1e9) - (Number(b.ordem) || 1e9) || idNum(a) - idNum(b);
+  const servsDo = (store, pr) => store.rows('Servicos').filter((x) => x.prestador_id === pr.id).sort(ordemServ);
   const futurosDoProf = (store, pr, ctx, profId) => store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.profissional_id === profId && i.status === 'agendado' && i.data >= ctx.agora().data);
 
   ACOES.painelEquipe = (req, store, ctx) => {
@@ -1026,6 +1029,17 @@
     };
   };
 
+  // reordena a lista de serviços (a mesma ordem vale na tela do cliente e nos cadastros)
+  ACOES.painelServicosOrdenar = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const meus = servsDo(store, pr).map((x) => x.id);
+    const ids = Array.isArray(req.ids) ? req.ids.map(String) : [];
+    if (ids.length !== meus.length || new Set(ids).size !== ids.length || ids.some((id) => meus.indexOf(id) < 0)) falha('ordem_invalida', 'A nova ordem não confere com a lista de serviços. Atualize a tela e tente de novo.');
+    ids.forEach((id, i) => store.update('Servicos', (x) => x.id === id && x.prestador_id === pr.id, { ordem: i + 1 }));
+    return { ordenados: ids.length };
+  };
+
   ACOES.painelServicoSalvar = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
     exigirGestor(u);
@@ -1048,7 +1062,11 @@
     const id = atual ? atual.id : proximoId(store.rows('Servicos'), 'S');
     const campos = { nome: nome, duracao: duracao, preparo: preparo, ativo: ativoNovo };
     if (atual) store.update('Servicos', (x) => x.id === id, campos);
-    else store.insert('Servicos', Object.assign({ id: id, prestador_id: pr.id }, campos));
+    else {
+      const atuais = servsDo(store, pr);                                   // fixa a posição dos antigos (sem 'ordem') antes de colocar o novo no fim
+      atuais.forEach((x, i) => { if (Number(x.ordem) !== i + 1) store.update('Servicos', (y) => y.id === x.id, { ordem: i + 1 }); });
+      store.insert('Servicos', Object.assign({ id: id, prestador_id: pr.id, ordem: atuais.length + 1 }, campos));
+    }
     if (lista) {
       const meus = profs.map((p) => p.id), quer = lista.map((x) => x.id);
       store.remove('ProfServ', (x) => x.servico_id === id && meus.indexOf(x.profissional_id) >= 0 && quer.indexOf(x.profissional_id) < 0);
