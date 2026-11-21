@@ -694,6 +694,99 @@
     return { itemId: req.itemId, status: req.status };
   };
 
+  // --- relatórios e histórico de clientes ---
+  const contar = (lista, chave, nome) => {
+    const m = {};
+    lista.forEach((i) => { const k = chave(i); if (!m[k]) m[k] = { id: k, nome: nome(k), qtd: 0, minutos: 0 }; m[k].qtd++; m[k].minutos += Math.max(0, min(i.fim) - min(i.ini)); });
+    return Object.keys(m).map((k) => m[k]).sort((a, b) => b.qtd - a.qtd || a.nome.localeCompare(b.nome));
+  };
+  const periodoDe = (req, ctx) => {
+    const hoje = ctx.agora().data;
+    const de = req.de || hoje.slice(0, 8) + '01', ate = req.ate || hoje;
+    if (!dataValida(de) || !dataValida(ate)) falha('data_invalida', 'Período inválido.');
+    if (ate < de) falha('periodo_invalido', 'A data final deve ser igual ou posterior à inicial.');
+    if (somarDias(de, 366) < ate) falha('periodo_longo', 'Escolha um período de até 12 meses.');
+    return { de: de, ate: ate };
+  };
+
+  ACOES.painelRelatorio = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    const per = periodoDe(req, ctx);
+    const gestor = u.papel === 'gestor';
+    const profs = {}; store.rows('Profissionais').filter((p) => p.prestador_id === pr.id).forEach((p) => { profs[p.id] = p.nome; });
+    const servs = {}; store.rows('Servicos').filter((x) => x.prestador_id === pr.id).forEach((x) => { servs[x.id] = x.nome; });
+    const clis = {}; store.rows('Clientes').forEach((c) => { clis[c.id] = c; });
+    const todos = store.rows('Itens').filter((i) => i.prestador_id === pr.id && itemPermitido(u, i) && (!gestor || !req.profissionalId || i.profissional_id === req.profissionalId));
+    const noPeriodo = todos.filter((i) => i.data >= per.de && i.data <= per.ate);
+    const validos = noPeriodo.filter((i) => i.status !== 'cancelado');
+    const cancelados = noPeriodo.filter((i) => i.status === 'cancelado');
+    const primeira = {};
+    todos.filter((i) => i.status !== 'cancelado').forEach((i) => { if (!primeira[i.cliente_id] || i.data < primeira[i.cliente_id]) primeira[i.cliente_id] = i.data; });
+    const unicos = {}; validos.forEach((i) => { unicos[i.cliente_id] = true; });
+    const ids = Object.keys(unicos);
+    const dias = [0, 0, 0, 0, 0, 0, 0]; validos.forEach((i) => { dias[diaSemana(i.data)]++; });
+    const motivos = {}; cancelados.forEach((i) => { const m = String(i.cancelado_motivo || '').trim() || '(sem motivo informado)'; motivos[m] = (motivos[m] || 0) + 1; });
+    const nomeCli = (id) => (clis[id] ? clis[id].nome : '');
+    return {
+      de: per.de, ate: per.ate, escopo: gestor ? 'equipe' : 'proprio',
+      profissionais: gestor ? Object.keys(profs).map((id) => ({ id: id, nome: profs[id] })) : [],
+      resumo: {
+        total: noPeriodo.length, atendimentos: validos.length,
+        realizados: validos.filter((i) => i.status === 'realizado').length, faltas: validos.filter((i) => i.status === 'faltou').length,
+        pendentes: validos.filter((i) => i.status === 'agendado').length, cancelados: cancelados.length,
+        taxaCancelamento: noPeriodo.length ? Math.round(cancelados.length * 1000 / noPeriodo.length) / 10 : 0,
+        minutos: validos.reduce((t, i) => t + Math.max(0, min(i.fim) - min(i.ini)), 0),
+        clientes: ids.length, novos: ids.filter((id) => primeira[id] >= per.de && primeira[id] <= per.ate).length
+      },
+      porServico: contar(validos, (i) => i.servico_id, (k) => servs[k] || k),
+      porProfissional: gestor ? contar(validos, (i) => i.profissional_id, (k) => profs[k] || k) : [],
+      porDiaSemana: dias,
+      motivos: Object.keys(motivos).map((m) => ({ motivo: m, qtd: motivos[m] })).sort((a, b) => b.qtd - a.qtd).slice(0, 10),
+      linhas: noPeriodo.slice().sort((a, b) => (a.data + a.ini).localeCompare(b.data + b.ini)).slice(0, 5000).map((i) => ({
+        data: i.data, ini: i.ini, fim: i.fim, profissional: profs[i.profissional_id] || '', servico: servs[i.servico_id] || '', cliente: nomeCli(i.cliente_id),
+        telefone: gestor && clis[i.cliente_id] ? String(clis[i.cliente_id].telefone) : '', status: i.status, protocolo: i.protocolo, motivo: i.cancelado_motivo || ''
+      }))
+    };
+  };
+
+  ACOES.painelClientes = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const servs = {}; store.rows('Servicos').forEach((x) => { servs[x.id] = x.nome; });
+    const clis = {}; store.rows('Clientes').forEach((c) => { clis[c.id] = c; });
+    const por = {};
+    store.rows('Itens').filter((i) => i.prestador_id === pr.id).forEach((i) => { (por[i.cliente_id] = por[i.cliente_id] || []).push(i); });
+    const busca = String(req.busca || '').trim().toLowerCase();
+    const digitos = busca.replace(/\D/g, '');
+    const lista = Object.keys(por).filter((id) => clis[id]).map((id) => {
+      const its = por[id], ok = its.filter((i) => i.status !== 'cancelado');
+      const top = contar(ok, (i) => i.servico_id, (k) => servs[k] || k)[0];
+      return {
+        id: id, nome: clis[id].nome, telefone: String(clis[id].telefone), visitas: ok.filter((i) => i.status !== 'agendado' || i.data < ctx.agora().data).length,
+        futuros: ok.filter((i) => i.status === 'agendado' && i.data >= ctx.agora().data).length, cancelados: its.length - ok.length, faltas: ok.filter((i) => i.status === 'faltou').length,
+        primeira: ok.length ? ok.map((i) => i.data).sort()[0] : '', ultima: ok.length ? ok.map((i) => i.data).sort().slice(-1)[0] : '', servicoFavorito: top ? top.nome : ''
+      };
+    }).filter((c) => !busca || c.nome.toLowerCase().indexOf(busca) >= 0 || (digitos && c.telefone.replace(/\D/g, '').indexOf(digitos) >= 0))
+      .sort((a, b) => b.ultima.localeCompare(a.ultima) || a.nome.localeCompare(b.nome));
+    return { total: lista.length, clientes: lista.slice(0, 300) };
+  };
+
+  ACOES.painelClienteHistorico = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const cli = store.rows('Clientes').find((c) => c.id === req.clienteId);
+    const its = store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.cliente_id === req.clienteId);
+    if (!cli || !its.length) falha('cliente_inexistente', 'Cliente não encontrado.');
+    const profs = {}; store.rows('Profissionais').forEach((p) => { profs[p.id] = p.nome; });
+    const servs = {}; store.rows('Servicos').forEach((x) => { servs[x.id] = x.nome; });
+    return {
+      cliente: { id: cli.id, nome: cli.nome, telefone: String(cli.telefone) },
+      itens: its.slice().sort((a, b) => (b.data + b.ini).localeCompare(a.data + a.ini)).map((i) => ({
+        data: i.data, ini: i.ini, protocolo: i.protocolo, servico: servs[i.servico_id] || '', profissional: profs[i.profissional_id] || '', status: i.status, motivo: i.cancelado_motivo || ''
+      }))
+    };
+  };
+
   ACOES.painelBloquear = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
     if (!dataValida(req.data)) falha('data_invalida', 'Data inválida.');
@@ -865,7 +958,10 @@
     const p = u.papel === 'gestor' && !req.profissionalId ? profs[0] : profAlvo(store, pr, u, req);
     if (!p) falha('profissional_invalido', 'Cadastre um profissional primeiro.');
     const dias = [0, 1, 2, 3, 4, 5, 6].map(() => []);
-    store.rows('Disponibilidade').filter((d) => d.profissional_id === p.id).forEach((d) => { dias[Number(d.dia_semana)].push({ inicio: d.inicio, fim: d.fim }); });
+    store.rows('Disponibilidade').filter((d) => d.profissional_id === p.id).forEach((d) => {
+      const l = dias[Number(d.dia_semana)];
+      if (l && !l.some((x) => x.inicio === d.inicio && x.fim === d.fim)) l.push({ inicio: d.inicio, fim: d.fim }); // ignora linhas repetidas na planilha
+    });
     dias.forEach((l) => l.sort((a, b) => a.inicio.localeCompare(b.inicio)));
     const hoje = ctx.agora().data;
     const bloqueios = store.rows('Bloqueios').filter((b) => b.data >= hoje && (b.profissional_id === p.id || b.profissional_id === '*'))

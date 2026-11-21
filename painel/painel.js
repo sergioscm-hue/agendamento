@@ -17,7 +17,7 @@
   var st = {
     token: null, prestador: '', usuario: null, aba: 'agenda', data: hojeSP(), ag: null, filtro: '*',
     cancel: null, aviso: null, login: { usuario: '', pin: '' }, acessos: null, form: null,
-    hor: null, hprof: '', hdias: null, hsujo: false, hconf: null, folga: null, equipe: null, fprof: null, svc: null, fsvc: null
+    rel: null, relProfs: null, rper: 'mes', rde: '', rate: '', rprof: '', cli: null, cbusca: '', chist: null, hor: null, hprof: '', hdias: null, hsujo: false, hconf: null, folga: null, equipe: null, fprof: null, svc: null, fsvc: null
   };
   try {
     st.token = sessionStorage.getItem(CHAVE);
@@ -54,6 +54,7 @@
   }
   function sair(aviso) {
     st.token = null; st.ag = null; st.usuario = null; st.cancel = null; st.acessos = null; st.form = null; st.aba = 'agenda'; st.filtro = '*';
+    st.rel = null; st.rper = 'mes'; st.rde = ''; st.rate = ''; st.rprof = ''; st.cli = null; st.cbusca = ''; st.chist = null;
     st.hor = null; st.hprof = ''; st.hdias = null; st.hsujo = false; st.hconf = null; st.folga = null; st.equipe = null; st.fprof = null; st.svc = null; st.fsvc = null;
     try { sessionStorage.removeItem(CHAVE); sessionStorage.removeItem(CHAVE + ':u'); } catch (e) { /* ignore */ }
     st.aviso = aviso ? { tipo: 'info', texto: aviso } : null;
@@ -188,13 +189,15 @@
         } }, 'Bloquear')));
   }
 
-  var ROTULOS = { agenda: 'Agenda', horarios: 'Horários', equipe: 'Equipe', servicos: 'Serviços', acessos: 'Acessos' };
+  var ROTULOS = { agenda: 'Agenda', relatorios: 'Relatórios', clientes: 'Clientes', horarios: 'Horários', equipe: 'Equipe', servicos: 'Serviços', acessos: 'Acessos' };
   function carregarAba() {
     if (st.aba === 'agenda') carregar();
     else if (st.aba === 'acessos') carregarAcessos();
     else if (st.aba === 'horarios') carregarHorarios();
     else if (st.aba === 'equipe') carregarEquipe();
     else if (st.aba === 'servicos') carregarServicos();
+    else if (st.aba === 'relatorios') carregarRelatorio();
+    else if (st.aba === 'clientes') carregarClientes();
   }
   function irParaAba(id) {
     st.aba = id; st.aviso = null; st.cancel = null; st.form = null; st.fprof = null; st.fsvc = null; st.folga = null; st.hconf = null;
@@ -205,8 +208,8 @@
     var topo = h('div', { class: 'barra' }, h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
       h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
       h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
-    var ids = ehGestor() ? ['agenda', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'horarios'];
-    var rot = function (id) { return !ehGestor() ? (id === 'agenda' ? 'Minha agenda' : 'Meu horário') : ROTULOS[id]; };
+    var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
+    var rot = function (id) { return !ehGestor() ? ({ agenda: 'Minha agenda', relatorios: 'Meu resumo', horarios: 'Meu horário' })[id] : ROTULOS[id]; };
     var abas = ids.map(function (id) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { irParaAba(id); } }, rot(id)); });
     return [topo, h('div', { class: 'abas', role: 'navigation' }, abas)];
   }
@@ -480,9 +483,123 @@
       h('p', { class: 'pequeno' }, 'Os tempos são médios e aparecem para o cliente como "aprox.". Mudanças valem só para novos agendamentos.'))];
   }
 
+  // ------------------------------------------------------------ relatórios e clientes
+  function baixarCSV(nome, cabecalho, linhas) {
+    var esc = function (v) {
+      var t = String(v === undefined || v === null ? '' : v);
+      if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;                    // evita execução de fórmula ao abrir no Excel/Sheets
+      return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    var txt = '﻿' + [cabecalho].concat(linhas).map(function (l) { return l.map(esc).join(';'); }).join('\r\n');
+    var url = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' }));
+    var a = document.createElement('a'); a.href = url; a.download = nome; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 500);
+  }
+  var NOME_STATUS = { agendado: 'agendado', realizado: 'realizado', faltou: 'faltou', cancelado: 'cancelado' };
+  function periodoRel() {
+    var hoje = hojeSP(), p = st.rper;
+    if (p === 'mes') { var prox = Core.somarDias(hoje.slice(0, 8) + '28', 4); return { de: hoje.slice(0, 8) + '01', ate: Core.somarDias(prox.slice(0, 8) + '01', -1) }; }
+    if (p === 'prox') return { de: hoje, ate: Core.somarDias(hoje, 30) };
+    if (p === 'ant') { var ini = hoje.slice(0, 8) + '01', fimAnt = Core.somarDias(ini, -1); return { de: fimAnt.slice(0, 8) + '01', ate: fimAnt }; }
+    if (p === '30') return { de: Core.somarDias(hoje, -29), ate: hoje };
+    if (p === '90') return { de: Core.somarDias(hoje, -89), ate: hoje };
+    return { de: st.rde || hoje.slice(0, 8) + '01', ate: st.rate || hoje };
+  }
+  function carregarRelatorio() {
+    var per = periodoRel();
+    chamar({ action: 'painelRelatorio', de: per.de, ate: per.ate, profissionalId: st.rprof || undefined }).then(function (r) {
+      if (!r.ok) { falhaAviso(r); return; }
+      st.aviso = null; st.rel = r.data; render();
+    });
+  }
+  function horasTxt(m) { return m >= 60 ? Math.floor(m / 60) + 'h' + (m % 60 ? ('0' + (m % 60)).slice(-2) : '') : m + ' min'; }
+  function barras(lista, rotulo) {
+    var max = Math.max.apply(null, lista.map(function (x) { return x.qtd; }).concat([1]));
+    return lista.length ? h('div', { class: 'barras' }, lista.map(function (x) {
+      return h('div', { class: 'barra-linha' }, h('span', { class: 'bl-nome' }, x.nome),
+        h('span', { class: 'bl-trilho', role: 'img', 'aria-label': x.nome + ': ' + x.qtd }, h('span', { class: 'bl-preenche', style: 'width:' + (x.qtd ? Math.max(4, Math.round(x.qtd * 100 / max)) : 0) + '%' })),
+        h('span', { class: 'bl-valor' }, x.qtd + (rotulo ? ' · ' + horasTxt(x.minutos) : '')));
+    })) : h('p', { class: 'vazio' }, 'Sem dados no período.');
+  }
+  function exportarRelatorio() {
+    var r = st.rel, gest = ehGestor();
+    var cab = ['Data', 'Início', 'Fim', 'Profissional', 'Serviço', 'Cliente'].concat(gest ? ['Telefone'] : []).concat(['Situação', 'Protocolo', 'Motivo do cancelamento']);
+    baixarCSV('atendimentos_' + r.de + '_a_' + r.ate + '.csv', cab, r.linhas.map(function (l) {
+      return [Core.dataBR(l.data), l.ini, l.fim, l.profissional, l.servico, l.cliente].concat(gest ? [l.telefone] : []).concat([NOME_STATUS[l.status] || l.status, l.protocolo, l.motivo]);
+    }));
+  }
+  function telaRelatorios() {
+    var gest = ehGestor(), titulo = gest ? 'Relatórios' : 'Meu resumo';
+    if (!st.rel) return carregando(titulo);
+    var r = st.rel, sm = r.resumo;
+    var presets = [['mes', 'Este mês'], ['ant', 'Mês anterior'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['prox', 'Próximos 30 dias'], ['livre', 'Escolher datas']];
+    var barraPer = h('div', { class: 'filtros' }, presets.map(function (p) { return h('button', { 'aria-pressed': String(st.rper === p[0]), onclick: function () { st.rper = p[0]; if (p[0] === 'livre') { st.rde = st.rde || r.de; st.rate = st.rate || r.ate; render(); } else carregarRelatorio(); } }, p[1]); }));
+    var livre = st.rper === 'livre' ? h('div', { class: 'form-acesso', style: 'padding:0 1.25rem' },
+      campo('De', h('input', { type: 'date', value: st.rde, onchange: function (e) { st.rde = e.target.value; } })),
+      campo('Até', h('input', { type: 'date', value: st.rate, onchange: function (e) { st.rate = e.target.value; } })),
+      h('button', { class: 'btn mini', onclick: carregarRelatorio }, 'Aplicar')) : null;
+    var chipsProf = gest && r.profissionais.length > 1 ? h('div', { class: 'filtros' }, [{ id: '', nome: 'Toda a equipe' }].concat(r.profissionais).map(function (p) {
+      return h('button', { 'aria-pressed': String(st.rprof === p.id), onclick: function () { st.rprof = p.id; carregarRelatorio(); } }, p.nome);
+    })) : null;
+    var kpi = function (v, rot, sub) { return h('div', { class: 'kpi' }, h('div', { class: 'kpi-v' }, String(v)), h('div', { class: 'kpi-r' }, rot), sub ? h('div', { class: 'kpi-s' }, sub) : null); };
+    var DS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    var dias = ORDEM_DIA.map(function (d) { return { nome: DS[d], qtd: r.porDiaSemana[d], minutos: 0 }; });
+    return [tituloTela(titulo), barraPer, livre, chipsProf, avisoEl(),
+      h('p', { class: 'pequeno', style: 'padding:0 1.25rem;margin:.2rem 0' }, Core.dataBR(r.de) + ' a ' + Core.dataBR(r.ate) + (gest ? '' : ' · somente a sua agenda')),
+      h('div', { class: 'kpis' },
+        kpi(sm.atendimentos, 'Atendimentos', sm.realizados + ' realizados · ' + sm.pendentes + ' a realizar'),
+        kpi(sm.clientes, 'Clientes', sm.novos + ' novo(s)'),
+        kpi(horasTxt(sm.minutos), 'Tempo de atendimento'),
+        kpi(sm.cancelados, 'Cancelamentos', sm.taxaCancelamento + '%' + (sm.faltas ? ' · ' + sm.faltas + ' falta(s)' : ''))),
+      h('div', { class: 'lista-acessos' },
+        h('h3', { style: 'margin:.4rem 0 0' }, 'Serviços mais realizados'), barras(r.porServico, true),
+        gest ? [h('h3', { style: 'margin:.8rem 0 0' }, 'Por profissional'), barras(r.porProfissional, true)] : null,
+        h('h3', { style: 'margin:.8rem 0 0' }, 'Dias da semana'), barras(dias, false),
+        h('h3', { style: 'margin:.8rem 0 0' }, 'Motivos de cancelamento'),
+        r.motivos.length ? r.motivos.map(function (m) { return h('div', { class: 'usuario' }, h('div', { class: 'topo' }, h('span', {}, m.motivo.length > 110 ? m.motivo.slice(0, 107) + '…' : m.motivo), h('span', { class: 'badge' }, String(m.qtd)))); }) : h('p', { class: 'vazio' }, 'Nenhum cancelamento no período.'),
+        h('div', { class: 'acoes' }, h('button', { class: 'btn', disabled: !r.linhas.length, onclick: exportarRelatorio }, 'Exportar CSV (' + r.linhas.length + ' linhas)')),
+        h('p', { class: 'pequeno' }, 'O CSV abre direto no Excel e no Google Planilhas. Contém dados pessoais de clientes: guarde e compartilhe com cuidado (LGPD).'))];
+  }
+
+  function carregarClientes() {
+    chamar({ action: 'painelClientes', busca: st.cbusca }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.aviso = null; st.cli = r.data; render(); });
+  }
+  function abrirHistorico(id) {
+    if (st.chist && st.chist.cliente.id === id) { st.chist = null; render(); return; }
+    chamar({ action: 'painelClienteHistorico', clienteId: id }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.chist = r.data; render(); });
+  }
+  function exportarClientes() {
+    baixarCSV('clientes.csv', ['Nome', 'Telefone', 'Visitas', 'Agendamentos futuros', 'Cancelamentos', 'Faltas', 'Primeira visita', 'Última visita', 'Serviço mais frequente'],
+      st.cli.clientes.map(function (c) { return [c.nome, c.telefone, c.visitas, c.futuros, c.cancelados, c.faltas, c.primeira ? Core.dataBR(c.primeira) : '', c.ultima ? Core.dataBR(c.ultima) : '', c.servicoFavorito]; }));
+  }
+  function telaClientes() {
+    if (!st.cli) return carregando('Clientes');
+    var cs = st.cli;
+    var busca = h('div', { class: 'form-acesso', style: 'padding:0 1.25rem' },
+      campo('Buscar por nome ou telefone', h('input', { type: 'search', value: st.cbusca, oninput: function (e) { st.cbusca = e.target.value; }, onkeydown: function (e) { if (e.key === 'Enter') carregarClientes(); } })),
+      h('button', { class: 'btn mini', onclick: carregarClientes }, 'Buscar'));
+    var itens = cs.clientes.map(function (c) {
+      var aberto = st.chist && st.chist.cliente.id === c.id;
+      return h('div', { class: 'usuario' },
+        h('div', { class: 'topo' }, h('strong', {}, c.nome), c.futuros ? h('span', { class: 'badge' }, c.futuros + ' a vir') : null),
+        h('div', { class: 'meta' }, c.telefone + ' · ' + c.visitas + ' visita(s)' + (c.ultima ? ' · última em ' + Core.dataBR(c.ultima) : '')),
+        h('div', { class: 'meta' }, (c.servicoFavorito ? 'Mais frequente: ' + c.servicoFavorito : 'Sem atendimentos') + (c.cancelados ? ' · ' + c.cancelados + ' cancelamento(s)' : '') + (c.faltas ? ' · ' + c.faltas + ' falta(s)' : '')),
+        h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', 'aria-expanded': String(!!aberto), onclick: function () { abrirHistorico(c.id); } }, aberto ? 'Ocultar histórico' : 'Ver histórico')),
+        aberto ? h('div', { class: 'historico' }, st.chist.itens.map(function (i) {
+          return h('div', { class: 'meta' }, Core.dataBR(i.data) + ' ' + i.ini + ' · ' + i.servico + ' · ' + i.profissional + ' · ' + (NOME_STATUS[i.status] || i.status) + (i.motivo ? ' (' + i.motivo + ')' : ''));
+        })) : null);
+    });
+    return [tituloTela('Clientes'), busca, avisoEl(), h('div', { class: 'lista-acessos' },
+      h('p', { class: 'pequeno' }, cs.total + ' cliente(s)' + (cs.total > cs.clientes.length ? ' · mostrando os ' + cs.clientes.length + ' mais recentes' : '')),
+      itens.length ? itens : h('p', { class: 'vazio' }, 'Nenhum cliente encontrado.'),
+      h('div', { class: 'acoes' }, h('button', { class: 'btn', disabled: !cs.clientes.length, onclick: exportarClientes }, 'Exportar CSV')),
+      h('p', { class: 'pequeno' }, 'Dados pessoais visíveis apenas ao gestor. Use-os somente para o atendimento e para estatísticas do estabelecimento.'))];
+  }
+
   function render() {
     if (!st.token) { raiz.replaceChildren(telaLogin()); return; }
-    var corpo = !ehGestor() && st.aba !== 'agenda' && st.aba !== 'horarios' ? telaAgenda()
+    var corpo = !ehGestor() && st.aba !== 'agenda' && st.aba !== 'horarios' && st.aba !== 'relatorios' ? telaAgenda()
+      : st.aba === 'relatorios' ? telaRelatorios() : st.aba === 'clientes' && ehGestor() ? telaClientes()
       : st.aba === 'acessos' && ehGestor() ? telaAcessos() : st.aba === 'horarios' ? telaHorarios()
       : st.aba === 'equipe' && ehGestor() ? telaEquipe() : st.aba === 'servicos' && ehGestor() ? telaServicos() : telaAgenda();
     raiz.replaceChildren(h('div', { class: 'painel' }, barra(), corpo));
