@@ -230,7 +230,15 @@
     var pm = st.cfg && st.cfg.promocao;
     if (!pm) return null;
     var fundo = /^#[0-9a-f]{6}$/i.test(pm.cor) ? pm.cor : '#2b2f36';
-    return h('div', { class: 'faixa-promo', role: 'note', style: 'background:' + fundo + ';color:' + corTexto(fundo) }, pm.texto);
+    var estilo = 'background:' + fundo + ';color:' + corTexto(fundo);
+    var ids = pm.servicoIds || [];
+    if (!ids.length) return h('div', { class: 'faixa-promo', role: 'note', style: estilo }, pm.texto);
+    // com serviços vinculados, a faixa vira atalho: seleciona os serviços e vai direto para dia e hora
+    var nomes = ids.map(function (id) { var x = st.cfg.servicos.find(function (v) { return v.id === id; }); return x ? x.nome : ''; }).filter(Boolean).join(' + ');
+    return h('button', { class: 'faixa-promo atalho', type: 'button', style: estilo, 'aria-label': pm.texto + '. Toque para agendar: ' + nomes, onclick: function () {
+      st.sel = ids.map(function (id) { return { servicoId: id, profId: '' }; });
+      st.data = null; st.opcoes = null; st.opcaoSel = null; setAviso(); ir('horario');
+    } }, h('span', {}, pm.texto), h('span', { class: 'faixa-cta' }, 'Toque para agendar: ' + nomes + ' ›'));
   }
 
   TELAS.servicos = function () {

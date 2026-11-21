@@ -31,13 +31,13 @@
     Config: ['chave', 'valor'],
     Usuarios: ['id', 'prestador_id', 'usuario', 'nome', 'papel', 'profissional_id', 'pode_cancelar', 'pin_hash', 'tentativas', 'bloqueado_ate', 'ativo'],
     Modelos: ['id', 'prestador_id', 'texto', 'ativo'],
-    Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo']
+    Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo', 'servicos']
   };
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
   const COL_DATA = ['data', 'de', 'ate'];
   const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate'];
-  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor'];
+  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos'];
 
   // ---------- utilidades ----------
   class ErroApi extends Error {
@@ -346,10 +346,11 @@
     return { token: emitirToken(ctx, 'cli', pr, { cid: cli.id }, 24 * 90), cliente: { id: cli.id, nome: cli.nome, telefone: cli.telefone } };
   }
 
+  const listaIds = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
   const promocaoVigente = (store, pr, hoje) => {
     const p = store.rows('Promocoes').filter((x) => x.prestador_id === pr.id && ativo(x) && x.de <= hoje && hoje <= x.ate)
       .sort((a, b) => b.de.localeCompare(a.de) || Number(String(b.id).replace(/\D/g, '')) - Number(String(a.id).replace(/\D/g, '')))[0];
-    return p ? { id: p.id, texto: p.texto, cor: p.cor } : null;
+    return p ? { id: p.id, texto: p.texto, cor: p.cor, servicoIds: listaIds(p.servicos) } : null;
   };
 
   ACOES.config = (req, store, ctx) => {
@@ -359,14 +360,18 @@
     const servs = store.rows('Servicos').filter((s) => s.prestador_id === pr.id && ativo(s));
     const ps = store.rows('ProfServ');
     const disp = store.rows('Disponibilidade');
+    const servicosOferecidos = servs.map((s) => ({
+      id: s.id, nome: s.nome, duracao: numCfg(s.duracao, 30), preparo: numCfg(s.preparo, 0),
+      profissionais: ps.filter((x) => x.servico_id === s.id && profs.some((p) => p.id === x.profissional_id)).map((x) => x.profissional_id)
+    })).filter((s) => s.profissionais.length);
+    const promo = promocaoVigente(store, pr, ctx.agora().data);
+    // o atalho só vale se todos os serviços da promoção ainda estiverem sendo oferecidos
+    if (promo && !(promo.servicoIds.length && promo.servicoIds.every((id) => servicosOferecidos.some((x) => x.id === id)))) promo.servicoIds = [];
     return {
       prestador: { slug: pr.slug, nome: pr.nome, cor: pr.cor, logo: pr.logo, ...cfg },
-      promocao: promocaoVigente(store, pr, ctx.agora().data),
+      promocao: promo,
       profissionais: profs.map((p) => ({ id: p.id, nome: p.nome, dias: Array.from(new Set(disp.filter((d) => d.profissional_id === p.id).map((d) => Number(d.dia_semana)))) })),
-      servicos: servs.map((s) => ({
-        id: s.id, nome: s.nome, duracao: numCfg(s.duracao, 30), preparo: numCfg(s.preparo, 0),
-        profissionais: ps.filter((x) => x.servico_id === s.id && profs.some((p) => p.id === x.profissional_id)).map((x) => x.profissional_id)
-      })).filter((s) => s.profissionais.length)
+      servicos: servicosOferecidos
     };
   };
 
@@ -797,13 +802,16 @@
 
   // --- promoções (tela inicial do cliente; somente gestor) ---
   const COR_HEX = /^#[0-9a-fA-F]{6}$/;
-  const promoPublica = (x, hoje) => ({ id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, ativo: ativo(x), situacao: !ativo(x) ? 'desativada' : x.ate < hoje ? 'encerrada' : x.de > hoje ? 'agendada' : 'vigente' });
+  const promoPublica = (x, hoje) => ({ id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, servicoIds: listaIds(x.servicos), ativo: ativo(x), situacao: !ativo(x) ? 'desativada' : x.ate < hoje ? 'encerrada' : x.de > hoje ? 'agendada' : 'vigente' });
 
   ACOES.painelPromocoes = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
     exigirGestor(u);
     const hoje = ctx.agora().data;
-    return { promocoes: store.rows('Promocoes').filter((x) => x.prestador_id === pr.id).sort((a, b) => b.de.localeCompare(a.de)).map((x) => promoPublica(x, hoje)) };
+    return {
+      promocoes: store.rows('Promocoes').filter((x) => x.prestador_id === pr.id).sort((a, b) => b.de.localeCompare(a.de)).map((x) => promoPublica(x, hoje)),
+      servicos: store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).map((x) => ({ id: x.id, nome: x.nome }))
+    };
   };
 
   ACOES.painelPromocaoSalvar = (req, store, ctx) => {
@@ -816,7 +824,11 @@
     if (req.ate < req.de) falha('periodo_invalido', 'A data final deve ser igual ou posterior à inicial.');
     const atual = req.id ? store.rows('Promocoes').find((x) => x.id === req.id && x.prestador_id === pr.id) : null;
     if (req.id && !atual) falha('promocao_inexistente', 'Promoção não encontrada.');
-    const dados = { texto: texto, cor: String(req.cor).toLowerCase(), de: req.de, ate: req.ate, ativo: req.ativo !== false };
+    const ids = Array.from(new Set((Array.isArray(req.servicoIds) ? req.servicoIds : []).map(String)));
+    if (ids.length > 4) falha('servicos_demais', 'Escolha no máximo 4 serviços para a promoção.');
+    const validos = store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).map((x) => x.id);
+    if (ids.some((id) => validos.indexOf(id) < 0)) falha('servico_invalido', 'Serviço inválido na promoção.');
+    const dados = { texto: texto, cor: String(req.cor).toLowerCase(), de: req.de, ate: req.ate, ativo: req.ativo !== false, servicos: ids.join(',') };
     const id = atual ? atual.id : proximoId(store.rows('Promocoes'), 'M');
     if (atual) store.update('Promocoes', (x) => x.id === id, dados);
     else store.insert('Promocoes', Object.assign({ id: id, prestador_id: pr.id }, dados));

@@ -614,13 +614,23 @@
   function carregarPromos() {
     chamar({ action: 'painelPromocoes' }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.promos = r.data; render(); });
   }
-  function novaPromo() { var h0 = hojeSP(); return { id: '', texto: '', cor: '#c2185b', de: h0, ate: Core.somarDias(h0, 7), ativo: true }; }
+  var EMOJIS = ['🎄', '🎅', '❄️', '🎁', '⭐', '🎃', '👻', '🦇', '🌹', '💐', '💖', '🎉', '🥳', '🔥', '✨', '🏷️', '💅', '💇', '✂️', '💈', '💄', '🧴', '🛍️', '🎂', '🐰', '🌞', '🌸', '❤️', '👑', '🎓'];
+  function novaPromo() { var h0 = hojeSP(); return { id: '', texto: '', cor: '#c2185b', de: h0, ate: Core.somarDias(h0, 7), ativo: true, servicoIds: [] }; }
   function formPromo() {
     var f = st.fpromo, previa = h('div', { class: 'promo-previa' }, h('p', {}, ''));
     var atualizar = function () { previa.style.background = f.cor; previa.style.color = corLetra(f.cor); previa.firstChild.textContent = f.texto || 'Prévia do texto da promoção'; };
     var texto = h('textarea', { rows: '4', maxlength: '300', placeholder: 'Ex.: Dia das mães: Corte de Cabelo + Unha com 50% de desconto', oninput: function (e) { f.texto = e.target.value; contador.textContent = f.texto.length + '/300'; atualizar(); } });
     texto.value = f.texto;
     var contador = h('span', { class: 'pequeno' }, f.texto.length + '/300');
+    var emojis = h('div', { class: 'emojis', role: 'group', 'aria-label': 'Inserir emoji no texto' }, EMOJIS.map(function (em) {
+      return h('button', { type: 'button', 'aria-label': 'Inserir ' + em, onclick: function () {
+        var a = texto.selectionStart === undefined ? texto.value.length : texto.selectionStart, b = texto.selectionEnd === undefined ? a : texto.selectionEnd;
+        var novo = texto.value.slice(0, a) + em + texto.value.slice(b);
+        if (novo.length > 300) return;
+        texto.value = novo; f.texto = novo; contador.textContent = novo.length + '/300'; atualizar();
+        texto.focus(); texto.setSelectionRange(a + em.length, a + em.length);
+      } }, em);
+    }));
     var seletor = h('input', { type: 'color', value: f.cor, 'aria-label': 'Cor de fundo', oninput: function (e) { f.cor = e.target.value; atualizar(); } });
     var amostras = h('div', { class: 'amostras' }, CORES_PROMO.map(function (c) {
       return h('button', { type: 'button', class: 'amostra', style: 'background:' + c, 'aria-label': 'Usar a cor ' + c, onclick: function () { f.cor = c; seletor.value = c; atualizar(); } });
@@ -628,15 +638,23 @@
     atualizar();
     return h('div', { class: 'usuario' }, h('strong', {}, f.id ? 'Editar promoção' : 'Nova promoção'),
       h('div', { class: 'form-acesso' },
-        campo('Texto (aparece em negrito, centralizado)', texto), contador,
+        campo('Texto (aparece em negrito, centralizado)', texto), contador, emojis,
         campo('Cor de fundo', h('div', {}, seletor, amostras)),
         campo('Mostrar a partir de', h('input', { type: 'date', value: f.de, onchange: function (e) { f.de = e.target.value; } })),
         campo('Mostrar até (inclusive)', h('input', { type: 'date', value: f.ate, onchange: function (e) { f.ate = e.target.value; } })),
         h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.ativo, onchange: function (e) { f.ativo = e.target.checked; } }), 'Ativa')),
+      h('p', { class: 'pequeno', style: 'margin:.6rem 0 .2rem' }, 'Atalho de agendamento (opcional): ao tocar na faixa, o cliente já cai na escolha de dia e hora com estes serviços selecionados (até 4).'),
+      st.promos.servicos.length ? st.promos.servicos.map(function (sv) {
+        return h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.servicoIds.indexOf(sv.id) >= 0, onchange: function (e) {
+          var i = f.servicoIds.indexOf(sv.id);
+          if (e.target.checked && i < 0) { if (f.servicoIds.length >= 4) { e.target.checked = false; return; } f.servicoIds.push(sv.id); }
+          if (!e.target.checked && i >= 0) f.servicoIds.splice(i, 1);
+        } }), sv.nome);
+      }) : h('p', { class: 'vazio' }, 'Cadastre serviços na aba Serviços para usar o atalho.'),
       h('p', { class: 'pequeno', style: 'margin:.6rem 0 .2rem' }, 'Prévia:'), previa,
       h('div', { class: 'acoes' },
         h('button', { class: 'btn mini', onclick: function () {
-          chamar({ action: 'painelPromocaoSalvar', id: f.id || undefined, texto: f.texto, cor: f.cor, de: f.de, ate: f.ate, ativo: f.ativo }).then(function (r) {
+          chamar({ action: 'painelPromocaoSalvar', id: f.id || undefined, texto: f.texto, cor: f.cor, de: f.de, ate: f.ate, ativo: f.ativo, servicoIds: f.servicoIds }).then(function (r) {
             if (!r.ok) { falhaAviso(r); return; }
             st.aviso = { tipo: 'ok', texto: 'Promoção salva.' }; st.fpromo = null; carregarPromos();
           });
@@ -651,8 +669,9 @@
       return h('div', { class: 'usuario' + (x.situacao === 'vigente' || x.situacao === 'agendada' ? '' : ' inativo') },
         h('div', { class: 'topo' }, h('strong', {}, Core.dataBR(x.de) + ' a ' + Core.dataBR(x.ate)), h('span', { class: 'badge' + (x.situacao === 'vigente' ? '' : ' cancelado') }, ROT[x.situacao])),
         h('div', { class: 'promo-previa pequena', style: 'background:' + x.cor + ';color:' + corLetra(x.cor) }, h('p', {}, x.texto)),
+        x.servicoIds.length ? h('div', { class: 'meta' }, 'Atalho: ' + x.servicoIds.map(function (id) { var sv = st.promos.servicos.find(function (v) { return v.id === id; }); return sv ? sv.nome : id; }).join(' + ')) : null,
         h('div', { class: 'acoes' },
-          h('button', { class: 'btn mini sec', onclick: function () { st.fpromo = { id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, ativo: x.ativo }; st.aviso = null; render(); } }, 'Editar'),
+          h('button', { class: 'btn mini sec', onclick: function () { st.fpromo = { id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, ativo: x.ativo, servicoIds: x.servicoIds.slice() }; st.aviso = null; render(); } }, 'Editar'),
           h('button', { class: 'btn mini perigo', onclick: function () {
             if (!confirm('Excluir esta promoção?')) return;
             chamar({ action: 'painelPromocaoRemover', id: x.id }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.aviso = { tipo: 'ok', texto: 'Promoção excluída.' }; carregarPromos(); });
