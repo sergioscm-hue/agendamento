@@ -212,5 +212,5 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 /* busca de clientes: largura total e altura dobrada */
 .busca-clientes { display: block; padding: .7rem 1.25rem 0; }
 .busca-clientes label { display: block; width: 100%; }
-.busca-clientes input[type=search] { width: 100%; box-sizing: border-box; min-height: 88px; font-size: 1.1rem; }
+.busca-clientes input[type=search] { width: 100%; box-sizing: border-box; min-height: 60px; font-size: 1.1rem; }
 .busca-clientes .btn { margin-top: .6rem; }
