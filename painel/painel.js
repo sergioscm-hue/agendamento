@@ -368,13 +368,19 @@
       st.aviso = { tipo: 'ok', texto: 'Horários salvos.' }; st.hconf = r.data.conflitos; carregarHorarios();
     });
   }
+  // ao mudar um horário, habilita "Salvar horários" na hora (redesenha só na primeira alteração e mantém a rolagem)
+  function marcarSujo() {
+    if (st.hsujo) return;
+    var y = window.pageYOffset || 0;
+    st.hsujo = true; render(); window.scrollTo(0, y);
+  }
   function linhaDia(d, edit) {
     var faixas = st.hdias[d];
     var corpo = faixas.length ? faixas.map(function (f, k) {
       if (!edit) return h('div', { class: 'faixa' }, f.inicio + ' – ' + f.fim);
       return h('div', { class: 'faixa' },
-        h('input', { type: 'time', value: f.inicio, 'aria-label': 'Início', onchange: function (e) { f.inicio = e.target.value; st.hsujo = true; } }), ' às ',
-        h('input', { type: 'time', value: f.fim, 'aria-label': 'Fim', onchange: function (e) { f.fim = e.target.value; st.hsujo = true; } }),
+        h('input', { type: 'time', value: f.inicio, 'aria-label': 'Início', onchange: function (e) { f.inicio = e.target.value; marcarSujo(); } }), ' às ',
+        h('input', { type: 'time', value: f.fim, 'aria-label': 'Fim', onchange: function (e) { f.fim = e.target.value; marcarSujo(); } }),
         h('button', { class: 'btn mini perigo', 'aria-label': 'Remover faixa', onclick: function () { faixas.splice(k, 1); st.hsujo = true; render(); } }, '✕'));
     }) : h('span', { class: 'pequeno' }, 'Fechado');
     return h('div', { class: 'dia-linha' }, h('strong', {}, NOMES_DIA[d]), h('div', { class: 'faixas' }, corpo,
