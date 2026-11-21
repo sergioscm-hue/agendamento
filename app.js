@@ -514,6 +514,19 @@
   // ---------------------------------------------------------------- inicialização
   window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); st.instalar = e; if (st.cfg && st.tela === 'servicos') render(); });
 
+  // contagem anônima (sem dados do cliente): instalação do app e, no máximo uma vez por dia, abertura como app instalado
+  function medirInstalacao() {
+    function enviar(tipo) { try { Api.chamar({ action: 'instalacao', slug: slug, tipo: tipo }); } catch (e) { /* ignore */ } }
+    window.addEventListener('appinstalled', function () { enviar('instalou'); });
+    var instalado = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    if (!instalado) return;
+    try {
+      var hoje = new Date().toISOString().slice(0, 10), k = 'agenda_app_aberto_' + slug;
+      if (localStorage.getItem(k) === hoje) return;
+      localStorage.setItem(k, hoje);
+    } catch (e) { /* sem storage: conta a abertura mesmo assim */ }
+    enviar('abriu');
+  }
   function iniciar() {
     Api.chamar({ action: 'config', slug: slug }).then(function (r) {
       if (!r.ok) {
@@ -527,6 +540,7 @@
       document.documentElement.style.setProperty('--on-accent', corTexto(cor));
       var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', cor);
       document.title = r.data.prestador.nome + ' — Agendamento';
+      medirInstalacao();
       var s = lerSessao();
       if (s && s.token) { st.token = s.token; st.cliente = s.cliente; }
       var abrir = function (pm) {

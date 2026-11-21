@@ -646,6 +646,9 @@
         kpi(sm.clientes, 'Clientes', sm.novos + ' novo(s)'),
         kpi(horasTxt(sm.minutos), 'Tempo de atendimento'),
         kpi(sm.cancelados, 'Cancelamentos', sm.taxaCancelamento + '%' + (sm.faltas ? ' · ' + sm.faltas + ' falta(s)' : ''))),
+      gest && r.app ? h('div', { class: 'kpis' },
+        kpi(r.app.instalacoes, 'App instalado', 'instalações no período'),
+        kpi(r.app.aberturas, 'Uso do app instalado', 'aberturas por dia, no período')) : null,
       h('div', { class: 'lista-acessos' },
         h('h3', { style: 'margin:.4rem 0 0' }, 'Serviços mais realizados'), barras(r.porServico, true),
         gest ? [h('h3', { style: 'margin:.8rem 0 0' }, 'Por profissional'), barras(r.porProfissional, true)] : null,
@@ -653,7 +656,7 @@
         h('h3', { style: 'margin:.8rem 0 0' }, 'Motivos de cancelamento'),
         r.motivos.length ? r.motivos.map(function (m) { return h('div', { class: 'usuario' }, h('div', { class: 'topo' }, h('span', {}, m.motivo.length > 110 ? m.motivo.slice(0, 107) + '…' : m.motivo), h('span', { class: 'badge' }, String(m.qtd)))); }) : h('p', { class: 'vazio' }, 'Nenhum cancelamento no período.'),
         h('div', { class: 'acoes' }, h('button', { class: 'btn', disabled: !r.linhas.length, onclick: exportarRelatorio }, 'Exportar CSV (' + r.linhas.length + ' linhas)')),
-        h('p', { class: 'pequeno' }, 'O CSV abre direto no Excel e no Google Planilhas. Contém dados pessoais de clientes: guarde e compartilhe com cuidado (LGPD).'))];
+        h('p', { class: 'pequeno' }, 'App instalado: contagem anônima, só desde que este recurso foi ativado; desinstalações não são detectadas e a instalação no iPhone não é contabilizada. O CSV abre direto no Excel e no Google Planilhas. Contém dados pessoais de clientes: guarde e compartilhe com cuidado (LGPD).'))];
   }
 
   function carregarClientes() {

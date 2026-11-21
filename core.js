@@ -32,7 +32,8 @@
     Usuarios: ['id', 'prestador_id', 'usuario', 'nome', 'papel', 'profissional_id', 'pode_cancelar', 'pin_hash', 'tentativas', 'bloqueado_ate', 'ativo'],
     Modelos: ['id', 'prestador_id', 'texto', 'ativo'],
     Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo', 'servicos', 'publico'],
-    Ofertas: ['cliente_id', 'prestador_id', 'aniv', 'datas', 'aceite_em', 'aceite_versao']
+    Ofertas: ['cliente_id', 'prestador_id', 'aniv', 'datas', 'aceite_em', 'aceite_versao'],
+    Instalacoes: ['data', 'prestador_id', 'tipo']
   };
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
@@ -416,6 +417,16 @@
     const { pr, sessao } = autenticar(req, store, ctx, 'cli');
     store.remove('Ofertas', (o) => o.prestador_id === pr.id && o.cliente_id === sessao.cid);
     return { removido: true };
+  };
+
+  // contagem anônima de uso como app instalado: só data, estabelecimento e tipo, sem qualquer dado do cliente
+  ACOES.instalacao = (req, store, ctx) => {
+    const pr = prestadorPorSlug(store, req.slug);
+    const tipo = req.tipo === 'instalou' || req.tipo === 'abriu' ? req.tipo : falha('tipo_invalido', 'Tipo inválido.');
+    const hoje = ctx.agora().data;
+    // trava contra excesso de chamadas (endpoint público)
+    if (store.rows('Instalacoes').filter((x) => x.prestador_id === pr.id && x.data === hoje && x.tipo === tipo).length < 3000) store.insert('Instalacoes', { data: hoje, prestador_id: pr.id, tipo: tipo });
+    return { registrado: true };
   };
 
   ACOES.config = (req, store, ctx) => {
@@ -815,6 +826,7 @@
       porServico: contar(validos, (i) => i.servico_id, (k) => servs[k] || k),
       porProfissional: gestor ? contar(validos, (i) => i.profissional_id, (k) => (profs[k] || k) + (profsAtivos[k] ? '' : ' (inativo)')) : [],
       porDiaSemana: dias,
+      app: gestor ? (() => { const ins = store.rows('Instalacoes').filter((x) => x.prestador_id === pr.id && x.data >= per.de && x.data <= per.ate); return { instalacoes: ins.filter((x) => x.tipo === 'instalou').length, aberturas: ins.filter((x) => x.tipo === 'abriu').length }; })() : null,
       motivos: Object.keys(motivos).map((m) => ({ motivo: m, qtd: motivos[m] })).sort((a, b) => b.qtd - a.qtd).slice(0, 10),
       linhas: noPeriodo.slice().sort((a, b) => (a.data + a.ini).localeCompare(b.data + b.ini)).slice(0, 5000).map((i) => ({
         data: i.data, ini: i.ini, fim: i.fim, profissional: profs[i.profissional_id] || '', servico: servs[i.servico_id] || '', cliente: nomeCli(i.cliente_id),
