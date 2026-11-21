@@ -1040,6 +1040,21 @@
     return { ordenados: ids.length };
   };
 
+  // exclui um serviço que nunca foi agendado; com histórico, o caminho é desativar (preserva relatórios e clientes)
+  ACOES.painelServicoRemover = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const sv = servsDo(store, pr).find((x) => x.id === req.id) || falha('servico_inexistente', 'Serviço não encontrado.');
+    const usos = store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.servico_id === sv.id).length;
+    if (usos) falha('servico_com_historico', 'Este serviço tem ' + usos + ' agendamento(s) no histórico e não pode ser excluído, pois isso apagaria o histórico e os relatórios. Você pode desativá-lo: ele deixa de aparecer para os clientes.');
+    store.remove('ProfServ', (x) => x.servico_id === sv.id);
+    store.remove('Servicos', (x) => x.id === sv.id && x.prestador_id === pr.id);
+    servsDo(store, pr).forEach((x, i) => { if (Number(x.ordem) !== i + 1) store.update('Servicos', (y) => y.id === x.id, { ordem: i + 1 }); });
+    store.rows('Promocoes').filter((x) => x.prestador_id === pr.id && listaIds(x.servicos).indexOf(sv.id) >= 0)
+      .forEach((x) => store.update('Promocoes', (y) => y.id === x.id, { servicos: listaIds(x.servicos).filter((id) => id !== sv.id).join(',') }));
+    return { removido: true };
+  };
+
   ACOES.painelServicoSalvar = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
     exigirGestor(u);

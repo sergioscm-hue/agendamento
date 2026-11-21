@@ -515,6 +515,24 @@
     };
     alca.addEventListener('pointermove', mover); alca.addEventListener('pointerup', fim); alca.addEventListener('pointercancel', cancelar);
   }
+  function excluirServico(x) {
+    if (!confirm('Excluir o serviço "' + x.nome + '"? Esta ação não pode ser desfeita.')) return;
+    chamar({ action: 'painelServicoRemover', id: x.id }).then(function (r) {
+      if (r.ok) { st.aviso = { tipo: 'ok', texto: 'Serviço excluído.' }; carregarServicos(); return; }
+      if (r.erro === 'servico_com_historico') {
+        // já foi agendado: oferece desativar, que preserva histórico e relatórios
+        if (confirm(r.mensagem + '\n\nDesativar "' + x.nome + '" agora?')) {
+          var lista = x.profissionais.map(function (p) { return { id: p.id, duracao: p.duracao }; });
+          chamar({ action: 'painelServicoSalvar', id: x.id, nome: x.nome, duracao: x.duracao, preparo: x.preparo, ativo: false, profissionais: lista }).then(function (r2) {
+            if (!r2.ok) { falhaAviso(r2); return; }
+            st.aviso = { tipo: 'ok', texto: 'Serviço desativado: não aparece mais para os clientes e o histórico foi preservado.' }; carregarServicos();
+          });
+        }
+        return;
+      }
+      falhaAviso(r);
+    });
+  }
   function telaServicos() {
     if (!st.svc) return carregando('Serviços');
     var sv = st.svc, nomeP = {};
@@ -534,7 +552,8 @@
         h('div', { class: 'meta' }, profs.length ? profs.map(function (p) { return nomeP[p.id] + (p.duracao ? ' (' + fmtDur(p.duracao) + ')' : ''); }).join(' · ') : 'Ninguém realiza este serviço'),
         h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', onclick: function () {
           var pf = {}; x.profissionais.forEach(function (p) { if (nomeP[p.id]) pf[p.id] = p.duracao; });
-          st.fsvc = { id: x.id, nome: x.nome, duracao: x.duracao, preparo: x.preparo, ativo: x.ativo, profs: pf }; st.aviso = null; render(); } }, 'Editar')));
+          st.fsvc = { id: x.id, nome: x.nome, duracao: x.duracao, preparo: x.preparo, ativo: x.ativo, profs: pf }; st.aviso = null; render(); } }, 'Editar'),
+          h('button', { class: 'btn mini perigo', onclick: function () { excluirServico(x); } }, 'Excluir')));
     });
     return [tituloTela('Serviços'), avisoEl(), h('div', { class: 'lista-acessos' }, itens,
       st.fsvc && !st.fsvc.id ? formServico() : h('button', { class: 'btn sec', onclick: function () { st.fsvc = { id: '', nome: '', duracao: 30, preparo: 0, ativo: true, profs: {} }; st.aviso = null; render(); } }, '+ Novo serviço'),
