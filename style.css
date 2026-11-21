@@ -194,3 +194,11 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .faixa-promo .faixa-cta { display: block; margin-top: .35rem; font-size: .85rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .emojis { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .4rem; }
 .emojis button { width: 40px; height: 40px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; font-size: 1.25rem; cursor: pointer; }
+.ofertas .grupo-chk { display: grid; gap: .1rem; margin: .4rem 0; }
+.ofertas .aniv .linha { display: flex; gap: .5rem; }
+.ofertas .aniv select { flex: 1; min-height: 44px; border: 1.5px solid var(--line); border-radius: 10px; padding: 0 .5rem; font: inherit; background: #fff; }
+.ofertas .aceite-ofertas { margin-top: .6rem; font-size: .9rem; line-height: 1.35; align-items: flex-start; }
+.ofertas label.chk { display: flex; gap: .55rem; align-items: center; min-height: 44px; cursor: pointer; }
+.ofertas label.chk input { width: 22px; height: 22px; flex: none; }
+.ofertas .btn { margin-top: .7rem; }
+.ofertas label.chk { color: var(--ink); }

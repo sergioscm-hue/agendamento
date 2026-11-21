@@ -31,13 +31,14 @@
     Config: ['chave', 'valor'],
     Usuarios: ['id', 'prestador_id', 'usuario', 'nome', 'papel', 'profissional_id', 'pode_cancelar', 'pin_hash', 'tentativas', 'bloqueado_ate', 'ativo'],
     Modelos: ['id', 'prestador_id', 'texto', 'ativo'],
-    Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo', 'servicos']
+    Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo', 'servicos', 'publico'],
+    Ofertas: ['cliente_id', 'prestador_id', 'aniv', 'datas', 'aceite_em', 'aceite_versao']
   };
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
   const COL_DATA = ['data', 'de', 'ate'];
   const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate'];
-  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos'];
+  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos', 'publico', 'aniv', 'datas', 'aceite_em', 'aceite_versao'];
 
   // ---------- utilidades ----------
   class ErroApi extends Error {
@@ -347,10 +348,74 @@
   }
 
   const listaIds = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const ordemPromo = (a, b) => b.de.localeCompare(a.de) || Number(String(b.id).replace(/\D/g, '')) - Number(String(a.id).replace(/\D/g, ''));
+  const promoSaida = (p) => ({ id: p.id, texto: p.texto, cor: p.cor, servicoIds: listaIds(p.servicos) });
   const promocaoVigente = (store, pr, hoje) => {
-    const p = store.rows('Promocoes').filter((x) => x.prestador_id === pr.id && ativo(x) && x.de <= hoje && hoje <= x.ate)
-      .sort((a, b) => b.de.localeCompare(a.de) || Number(String(b.id).replace(/\D/g, '')) - Number(String(a.id).replace(/\D/g, '')))[0];
-    return p ? { id: p.id, texto: p.texto, cor: p.cor, servicoIds: listaIds(p.servicos) } : null;
+    const p = store.rows('Promocoes').filter((x) => x.prestador_id === pr.id && ativo(x) && !x.publico && x.de <= hoje && hoje <= x.ate).sort(ordemPromo)[0];
+    return p ? promoSaida(p) : null;
+  };
+  const servicosOferecidos = (store, pr) => {
+    const profs = store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p));
+    const ps = store.rows('ProfServ');
+    return store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).map((x) => ({
+      id: x.id, nome: x.nome, duracao: numCfg(x.duracao, 30), preparo: numCfg(x.preparo, 0),
+      profissionais: ps.filter((y) => y.servico_id === x.id && profs.some((p) => p.id === y.profissional_id)).map((y) => y.profissional_id)
+    })).filter((x) => x.profissionais.length);
+  };
+  // o atalho só vale se todos os serviços da promoção ainda estiverem sendo oferecidos
+  const saneiaAtalho = (promo, oferecidos) => {
+    if (promo && !(promo.servicoIds.length && promo.servicoIds.every((id) => oferecidos.some((x) => x.id === id)))) promo.servicoIds = [];
+    return promo;
+  };
+
+  // --- ofertas personalizadas (opcionais, com consentimento próprio) ---
+  const DATAS_OFERTA = ['aniversario', 'maes', 'pais', 'natal'];
+  const OFERTAS_VERSAO = '1';
+  const ofertaDe = (store, pr, cid) => store.rows('Ofertas').find((o) => o.prestador_id === pr.id && o.cliente_id === cid && o.aceite_em) || null;
+  const aniversarioNaJanela = (aniv, hoje) => {      // da véspera de 3 dias até 3 dias depois do aniversário
+    const ano = Number(hoje.slice(0, 4));
+    return [ano - 1, ano, ano + 1].some((a) => {
+      const d = dataValida(a + '-' + aniv) ? a + '-' + aniv : a + '-02-28';
+      return hoje >= somarDias(d, -3) && hoje <= somarDias(d, 3);
+    });
+  };
+
+  ACOES.minhaPromocao = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    const hoje = ctx.agora().data, of = ofertaDe(store, pr, sessao.cid), datas = of ? listaIds(of.datas) : [];
+    const elegivel = (x) => !x.publico || (of && datas.indexOf(x.publico) >= 0 && (x.publico !== 'aniversario' || (of.aniv && aniversarioNaJanela(of.aniv, hoje))));
+    const todas = store.rows('Promocoes').filter((x) => x.prestador_id === pr.id && ativo(x) && x.de <= hoje && hoje <= x.ate && elegivel(x));
+    const p = todas.filter((x) => x.publico).sort(ordemPromo)[0] || todas.sort(ordemPromo)[0];
+    return { promocao: p ? saneiaAtalho(promoSaida(p), servicosOferecidos(store, pr)) : null };
+  };
+
+  ACOES.minhasOfertas = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    const of = ofertaDe(store, pr, sessao.cid);
+    return { aceito: !!of, aniv: of ? of.aniv : '', datas: of ? listaIds(of.datas) : [] };
+  };
+
+  ACOES.ofertasSalvar = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    if (req.aceite !== true) falha('aceite_obrigatorio', 'Para receber ofertas, é preciso concordar com o uso dessas informações.');
+    const datas = Array.from(new Set((Array.isArray(req.datas) ? req.datas : []).map(String)));
+    if (datas.some((d) => DATAS_OFERTA.indexOf(d) < 0)) falha('data_oferta_invalida', 'Data especial inválida.');
+    const aniv = String(req.aniv || '');
+    if (aniv && !(/^\d{2}-\d{2}$/.test(aniv) && dataValida('2000-' + aniv))) falha('aniversario_invalido', 'Informe um dia e mês válidos.');
+    if (datas.indexOf('aniversario') >= 0 && !aniv) falha('aniversario_invalido', 'Informe o dia e o mês do seu aniversário.');
+    if (!datas.length) falha('sem_datas', 'Escolha ao menos uma data para receber ofertas.');
+    const ag = ctx.agora(), quando = ag.data + ' ' + hm(ag.min);
+    const dados = { aniv: aniv, datas: datas.join(','), aceite_em: quando, aceite_versao: OFERTAS_VERSAO };
+    const atual = store.rows('Ofertas').some((o) => o.prestador_id === pr.id && o.cliente_id === sessao.cid);
+    if (atual) store.update('Ofertas', (o) => o.prestador_id === pr.id && o.cliente_id === sessao.cid, dados);
+    else store.insert('Ofertas', Object.assign({ cliente_id: sessao.cid, prestador_id: pr.id }, dados));
+    return { salvo: true };
+  };
+
+  ACOES.ofertasRemover = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    store.remove('Ofertas', (o) => o.prestador_id === pr.id && o.cliente_id === sessao.cid);
+    return { removido: true };
   };
 
   ACOES.config = (req, store, ctx) => {
@@ -360,18 +425,13 @@
     const servs = store.rows('Servicos').filter((s) => s.prestador_id === pr.id && ativo(s));
     const ps = store.rows('ProfServ');
     const disp = store.rows('Disponibilidade');
-    const servicosOferecidos = servs.map((s) => ({
-      id: s.id, nome: s.nome, duracao: numCfg(s.duracao, 30), preparo: numCfg(s.preparo, 0),
-      profissionais: ps.filter((x) => x.servico_id === s.id && profs.some((p) => p.id === x.profissional_id)).map((x) => x.profissional_id)
-    })).filter((s) => s.profissionais.length);
-    const promo = promocaoVigente(store, pr, ctx.agora().data);
-    // o atalho só vale se todos os serviços da promoção ainda estiverem sendo oferecidos
-    if (promo && !(promo.servicoIds.length && promo.servicoIds.every((id) => servicosOferecidos.some((x) => x.id === id)))) promo.servicoIds = [];
+    const oferecidos = servicosOferecidos(store, pr);
+    const promo = saneiaAtalho(promocaoVigente(store, pr, ctx.agora().data), oferecidos);
     return {
       prestador: { slug: pr.slug, nome: pr.nome, cor: pr.cor, logo: pr.logo, ...cfg },
       promocao: promo,
       profissionais: profs.map((p) => ({ id: p.id, nome: p.nome, dias: Array.from(new Set(disp.filter((d) => d.profissional_id === p.id).map((d) => Number(d.dia_semana)))) })),
-      servicos: servicosOferecidos
+      servicos: oferecidos
     };
   };
 
@@ -802,7 +862,7 @@
 
   // --- promoções (tela inicial do cliente; somente gestor) ---
   const COR_HEX = /^#[0-9a-fA-F]{6}$/;
-  const promoPublica = (x, hoje) => ({ id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, servicoIds: listaIds(x.servicos), ativo: ativo(x), situacao: !ativo(x) ? 'desativada' : x.ate < hoje ? 'encerrada' : x.de > hoje ? 'agendada' : 'vigente' });
+  const promoPublica = (x, hoje) => ({ id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, servicoIds: listaIds(x.servicos), publico: x.publico || '', ativo: ativo(x), situacao: !ativo(x) ? 'desativada' : x.ate < hoje ? 'encerrada' : x.de > hoje ? 'agendada' : 'vigente' });
 
   ACOES.painelPromocoes = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
@@ -828,7 +888,9 @@
     if (ids.length > 4) falha('servicos_demais', 'Escolha no máximo 4 serviços para a promoção.');
     const validos = store.rows('Servicos').filter((x) => x.prestador_id === pr.id && ativo(x)).map((x) => x.id);
     if (ids.some((id) => validos.indexOf(id) < 0)) falha('servico_invalido', 'Serviço inválido na promoção.');
-    const dados = { texto: texto, cor: String(req.cor).toLowerCase(), de: req.de, ate: req.ate, ativo: req.ativo !== false, servicos: ids.join(',') };
+    const publico = String(req.publico || '');
+    if (publico && DATAS_OFERTA.indexOf(publico) < 0) falha('publico_invalido', 'Público da promoção inválido.');
+    const dados = { texto: texto, cor: String(req.cor).toLowerCase(), de: req.de, ate: req.ate, ativo: req.ativo !== false, servicos: ids.join(','), publico: publico };
     const id = atual ? atual.id : proximoId(store.rows('Promocoes'), 'M');
     if (atual) store.update('Promocoes', (x) => x.id === id, dados);
     else store.insert('Promocoes', Object.assign({ id: id, prestador_id: pr.id }, dados));

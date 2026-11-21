@@ -210,9 +210,13 @@
       h('p', { class: 'pequeno centro', style: 'margin-top:1rem' }, 'Nos próximos acessos: login automático.'));
   };
 
+  function atualizarPromocao() {
+    chamar({ action: 'minhaPromocao' }).then(function (r) { if (r.ok) { st.cfg.promocao = r.data.promocao; if (st.tela === 'servicos') render(); } });
+  }
   function iniciarSessao(d) {
     st.token = d.token; st.cliente = d.cliente; salvarSessao();
     st.form.codigo = ''; st.passoCodigo = false; setAviso();
+    atualizarPromocao();
     ir('servicos');
   }
 
@@ -445,14 +449,65 @@
     st.instalar.prompt();
     st.instalar.userChoice.then(function () { st.instalar = null; render(); });
   }
+  // ofertas e datas especiais: opcional, com aceite próprio, editável e removível a qualquer momento
+  var ROTULO_DATAS = { aniversario: 'Meu aniversário', maes: 'Dia das Mães', pais: 'Dia dos Pais', natal: 'Natal' };
+  function carregarOfertas() {
+    chamar({ action: 'minhasOfertas' }).then(function (r) {
+      if (!r.ok) return;
+      var d = r.data;
+      st.ofertas = { aceito: d.aceito, dia: d.aniv ? d.aniv.slice(3) : '', mes: d.aniv ? d.aniv.slice(0, 2) : '', datas: d.datas.slice(), aceite: d.aceito, msg: null };
+      if (st.tela === 'perfil') render();
+    });
+  }
+  function salvarOfertas() {
+    var o = st.ofertas;
+    var aniv = o.dia && o.mes ? o.mes + '-' + o.dia : '';
+    chamar({ action: 'ofertasSalvar', aniv: aniv, datas: o.datas, aceite: o.aceite === true }).then(function (r) {
+      o.msg = r.ok ? { tipo: 'ok', texto: 'Preferências salvas.' } : { tipo: 'erro', texto: r.mensagem };
+      if (r.ok) { o.aceito = true; atualizarPromocao(); }
+      render();
+    });
+  }
+  function removerOfertas() {
+    chamar({ action: 'ofertasRemover' }).then(function (r) {
+      st.ofertas = { aceito: false, dia: '', mes: '', datas: [], aceite: false, msg: r.ok ? { tipo: 'ok', texto: 'Seus dados de ofertas foram removidos.' } : { tipo: 'erro', texto: r.mensagem } };
+      if (r.ok) atualizarPromocao();
+      render();
+    });
+  }
+  function blocoOfertas() {
+    var o = st.ofertas;
+    if (!o) { carregarOfertas(); return null; }
+    var nome = st.cfg.prestador.nome;
+    var dias = []; for (var d = 1; d <= 31; d++) dias.push(('0' + d).slice(-2));
+    var meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    var marcar = function (k) { return h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: o.datas.indexOf(k) >= 0, onchange: function (e) {
+      var i = o.datas.indexOf(k); if (e.target.checked && i < 0) o.datas.push(k); if (!e.target.checked && i >= 0) o.datas.splice(i, 1); render(); } }), ROTULO_DATAS[k]); };
+    return h('div', { class: 'card ofertas' },
+      h('b', {}, 'Ofertas em datas especiais (opcional)'),
+      h('p', { class: 'pequeno' }, 'Se quiser, conte em quais datas deseja receber descontos e ofertas de ' + nome + '. Você usa o app normalmente sem preencher isto.'),
+      o.msg ? h('div', { class: 'msg ' + o.msg.tipo, role: 'status' }, o.msg.texto) : null,
+      h('div', { class: 'grupo-chk', role: 'group', 'aria-label': 'Datas para receber ofertas' }, ['aniversario', 'maes', 'pais', 'natal'].map(marcar)),
+      o.datas.indexOf('aniversario') >= 0 ? h('div', { class: 'aniv' },
+        h('label', { for: 'aniv-dia' }, 'Dia e mês do aniversário (o ano não é necessário)'),
+        h('div', { class: 'linha' },
+          h('select', { id: 'aniv-dia', 'aria-label': 'Dia', onchange: function (e) { o.dia = e.target.value; } }, [h('option', { value: '' }, 'Dia')].concat(dias.map(function (x) { return h('option', { value: x, selected: o.dia === x }, String(Number(x))); }))),
+          h('select', { 'aria-label': 'Mês', onchange: function (e) { o.mes = e.target.value; } }, [h('option', { value: '' }, 'Mês')].concat(meses.map(function (m, i) { var v = ('0' + (i + 1)).slice(-2); return h('option', { value: v, selected: o.mes === v }, m); }))))) : null,
+      h('label', { class: 'chk aceite-ofertas' }, h('input', { type: 'checkbox', checked: o.aceite === true, onchange: function (e) { o.aceite = e.target.checked; render(); } }),
+        'Autorizo ' + nome + ' a usar essas informações apenas para me oferecer descontos e ofertas nessas datas. Posso alterar ou remover a qualquer momento.'),
+      h('button', { class: 'btn', disabled: !(o.aceite === true && o.datas.length), onclick: salvarOfertas }, o.aceito ? 'Atualizar preferências' : 'Salvar preferências'),
+      o.aceito ? h('button', { class: 'btn sec', onclick: function () { if (confirm('Remover seus dados de ofertas?')) removerOfertas(); } }, 'Remover meus dados de ofertas') : null);
+  }
+
   TELAS.perfil = function () {
     return h('div', {},
       h('h1', {}, 'Meu perfil'),
       h('div', { class: 'card' }, h('b', {}, st.cliente.nome), h('div', { class: 'pequeno' }, telFmt(st.cliente.telefone))),
+      blocoOfertas(),
       st.instalar ? h('button', { class: 'btn', onclick: instalarApp }, 'Instalar o app no celular') : null,
       h('a', { class: 'btn sec', href: base + 'politica.html', target: '_blank', rel: 'noopener' }, 'Política de Privacidade'),
       h('a', { class: 'btn sec', href: base + 'termos.html', target: '_blank', rel: 'noopener' }, 'Termos de Uso'),
-      h('button', { class: 'btn sec', onclick: function () { limparSessao(); st.sel = []; st.minhas = null; setAviso(); ir('acesso'); } }, 'Sair'),
+      h('button', { class: 'btn sec', onclick: function () { limparSessao(); st.sel = []; st.minhas = null; st.ofertas = null; setAviso(); ir('acesso'); } }, 'Sair'),
       Api.demo ? h('button', { class: 'btn perigo', onclick: function () { Api.reiniciarDemo(); limparSessao(); st.sel = []; st.minhas = null; st.form = { nome: '', telefone: '', aceite: false, codigo: '' }; ir('acesso'); } }, 'Reiniciar demonstração') : null);
   };
 
@@ -473,10 +528,15 @@
       var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', cor);
       document.title = r.data.prestador.nome + ' — Agendamento';
       var s = lerSessao();
-      var destino = s && s.token ? 'servicos' : 'acesso';
       if (s && s.token) { st.token = s.token; st.cliente = s.cliente; }
-      var pm = r.data.promocao;
-      if (pm) { st.promo = pm; st.depoisPromo = destino; ir('promo'); } else ir(destino);
+      var abrir = function (pm) {
+        var destino = st.token ? 'servicos' : 'acesso';
+        st.cfg.promocao = pm;
+        if (pm) { st.promo = pm; st.depoisPromo = destino; ir('promo'); } else ir(destino);
+      };
+      // com sessão, a promoção pode ser personalizada (aniversário, datas escolhidas); sem ela, vale a geral
+      if (st.token) chamar({ action: 'minhaPromocao' }).then(function (r2) { abrir(r2.ok ? r2.data.promocao : r.data.promocao); });
+      else abrir(r.data.promocao);
     });
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register(base + 'sw.js').catch(function () { /* ignore */ });
   }
