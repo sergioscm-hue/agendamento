@@ -38,5 +38,29 @@
     iniciarDemo();
   }
 
+  // caixa de confirmação do próprio app (o confirm() do navegador exibe o endereço do site antes da mensagem)
+  function confirmar(texto, rotuloOk, perigo) {
+    return new Promise(function (resolve) {
+      var anterior = document.activeElement;
+      var fundo = document.createElement('div'); fundo.className = 'dialogo-fundo';
+      var caixa = document.createElement('div'); caixa.className = 'dialogo'; caixa.setAttribute('role', 'alertdialog'); caixa.setAttribute('aria-modal', 'true');
+      var msg = document.createElement('p'); msg.className = 'dialogo-texto'; msg.textContent = texto; msg.id = 'dialogo-texto'; caixa.setAttribute('aria-labelledby', 'dialogo-texto');
+      var linha = document.createElement('div'); linha.className = 'dialogo-acoes';
+      var cancelar = document.createElement('button'); cancelar.type = 'button'; cancelar.className = 'btn sec'; cancelar.textContent = 'Cancelar';
+      var ok = document.createElement('button'); ok.type = 'button'; ok.className = 'btn' + (perigo ? ' perigo' : ''); ok.textContent = rotuloOk || 'OK';
+      function fim(v) { document.removeEventListener('keydown', tecla, true); fundo.remove(); if (anterior && anterior.focus) try { anterior.focus(); } catch (e) { /* ignore */ } resolve(v); }
+      function tecla(e) {
+        if (e.key === 'Escape') { e.preventDefault(); fim(false); }
+        else if (e.key === 'Tab') { e.preventDefault(); (document.activeElement === ok ? cancelar : ok).focus(); }
+      }
+      cancelar.onclick = function () { fim(false); }; ok.onclick = function () { fim(true); };
+      fundo.onclick = function (e) { if (e.target === fundo) fim(false); };
+      document.addEventListener('keydown', tecla, true);
+      linha.appendChild(cancelar); linha.appendChild(ok); caixa.appendChild(msg); caixa.appendChild(linha); fundo.appendChild(caixa); document.body.appendChild(fundo);
+      cancelar.focus();
+    });
+  }
+  window.Dialogo = { confirmar: confirmar };
+
   window.Api = { demo: demo, chamar: chamar, reiniciarDemo: reiniciarDemo };
 })();

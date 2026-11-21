@@ -496,7 +496,7 @@
       h('label', { class: 'chk aceite-ofertas' }, h('input', { type: 'checkbox', checked: o.aceite === true, onchange: function (e) { o.aceite = e.target.checked; render(); } }),
         'Autorizo ' + nome + ' a usar essas informações apenas para me oferecer descontos e ofertas nessas datas. Posso alterar ou remover a qualquer momento.'),
       h('button', { class: 'btn', disabled: !(o.aceite === true && o.datas.length), onclick: salvarOfertas }, o.aceito ? 'Atualizar preferências' : 'Salvar preferências'),
-      o.aceito ? h('button', { class: 'btn sec', onclick: function () { if (confirm('Remover seus dados de ofertas?')) removerOfertas(); } }, 'Remover meus dados de ofertas') : null);
+      o.aceito ? h('button', { class: 'btn sec', onclick: function () { Dialogo.confirmar('Remover seus dados de ofertas?', 'Remover', true).then(function (ok) { if (ok) removerOfertas(); }); } }, 'Remover meus dados de ofertas') : null);
   }
 
   TELAS.perfil = function () {

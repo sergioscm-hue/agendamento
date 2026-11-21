@@ -340,7 +340,10 @@
     });
   }
   function trocarProfHorarios(id) {
-    if (st.hsujo && !confirm('Há alterações não salvas. Descartá-las?')) { render(); return; }
+    if (st.hsujo) {
+      Dialogo.confirmar('Há alterações não salvas. Descartá-las?', 'Descartar', true).then(function (ok) { if (!ok) { render(); return; } st.hconf = null; carregarHorarios(id); });
+      return;
+    }
     st.hconf = null; carregarHorarios(id);
   }
   function salvarHorarios() {
@@ -443,20 +446,21 @@
         h('button', { class: 'btn mini sec', onclick: function () { st.fprof = null; st.aviso = null; render(); } }, 'Cancelar')));
   }
   function excluirProf(p) {
-    if (!confirm('Excluir "' + p.nome + '" da equipe? Esta ação não pode ser desfeita.')) return;
-    chamar({ action: 'painelProfissionalRemover', id: p.id }).then(function (r) {
-      if (r.ok) { st.aviso = { tipo: 'ok', texto: 'Profissional excluído(a).' }; carregarEquipe(); return; }
-      if (r.erro === 'profissional_com_historico') {
-        if (confirm(r.mensagem + '\n\nDesativar "' + p.nome + '" agora?')) {
+    Dialogo.confirmar('Excluir "' + p.nome + '" da equipe? Esta ação não pode ser desfeita.', 'Excluir', true).then(function (ok) {
+      if (!ok) return;
+      chamar({ action: 'painelProfissionalRemover', id: p.id }).then(function (r) {
+        if (r.ok) { st.aviso = { tipo: 'ok', texto: 'Profissional excluído(a).' }; carregarEquipe(); return; }
+        if (r.erro !== 'profissional_com_historico') { falhaAviso(r); return; }
+        // já teve agendamentos: oferece desativar, que preserva histórico e relatórios
+        Dialogo.confirmar(r.mensagem + '\n\nDesativar "' + p.nome + '" agora?', 'Desativar').then(function (ok2) {
+          if (!ok2) return;
           chamar({ action: 'painelProfissionalSalvar', id: p.id, nome: p.nome, ativo: false }).then(function (r2) {
             if (!r2.ok) { falhaAviso(r2); return; }
             st.aviso = { tipo: 'ok', texto: p.nome + ' foi desativado(a): sai dos novos agendamentos e dos filtros dos relatórios; o histórico foi preservado.' + (r2.data && r2.data.futuros ? ' Atenção: há ' + r2.data.futuros + ' agendamento(s) futuro(s) dessa pessoa para remarcar ou cancelar.' : '') };
             carregarEquipe();
           });
-        }
-        return;
-      }
-      falhaAviso(r);
+        });
+      });
     });
   }
   function telaEquipe() {
@@ -554,23 +558,24 @@
     alca.addEventListener('pointermove', mover); alca.addEventListener('pointerup', fim); alca.addEventListener('pointercancel', cancelar);
   }
   function excluirServico(x) {
-    if (!confirm('Excluir o serviço "' + x.nome + '"? Esta ação não pode ser desfeita.')) return;
-    chamar({ action: 'painelServicoRemover', id: x.id }).then(function (r) {
-      if (r.ok) { st.aviso = { tipo: 'ok', texto: 'Serviço excluído.' }; carregarServicos(); return; }
-      if (r.erro === 'servico_com_historico') {
+    Dialogo.confirmar('Excluir o serviço "' + x.nome + '"? Esta ação não pode ser desfeita.', 'Excluir', true).then(function (ok) {
+      if (!ok) return;
+      chamar({ action: 'painelServicoRemover', id: x.id }).then(function (r) {
+        if (r.ok) { st.aviso = { tipo: 'ok', texto: 'Serviço excluído.' }; carregarServicos(); return; }
+        if (r.erro !== 'servico_com_historico') { falhaAviso(r); return; }
         // já foi agendado: oferece desativar, que preserva histórico e relatórios
-        if (confirm(r.mensagem + '\n\nDesativar "' + x.nome + '" agora?')) {
+        Dialogo.confirmar(r.mensagem + '\n\nDesativar "' + x.nome + '" agora?', 'Desativar').then(function (ok2) {
+          if (!ok2) return;
           var lista = x.profissionais.map(function (p) { return { id: p.id, duracao: p.duracao }; });
           chamar({ action: 'painelServicoSalvar', id: x.id, nome: x.nome, duracao: x.duracao, preparo: x.preparo, ativo: false, profissionais: lista }).then(function (r2) {
             if (!r2.ok) { falhaAviso(r2); return; }
             st.aviso = { tipo: 'ok', texto: 'Serviço desativado: não aparece mais para os clientes e o histórico foi preservado.' }; carregarServicos();
           });
-        }
-        return;
-      }
-      falhaAviso(r);
+        });
+      });
     });
   }
+
   function telaServicos() {
     if (!st.svc) return carregando('Serviços');
     var sv = st.svc, nomeP = {};
@@ -784,8 +789,10 @@
         h('div', { class: 'acoes' },
           h('button', { class: 'btn mini sec', onclick: function () { st.fpromo = { id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, ativo: x.ativo, servicoIds: x.servicoIds.slice(), publico: x.publico || '' }; st.aviso = null; render(); } }, 'Editar'),
           h('button', { class: 'btn mini perigo', onclick: function () {
-            if (!confirm('Excluir esta promoção?')) return;
-            chamar({ action: 'painelPromocaoRemover', id: x.id }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.aviso = { tipo: 'ok', texto: 'Promoção excluída.' }; carregarPromos(); });
+            Dialogo.confirmar('Excluir esta promoção?', 'Excluir', true).then(function (ok) {
+              if (!ok) return;
+              chamar({ action: 'painelPromocaoRemover', id: x.id }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.aviso = { tipo: 'ok', texto: 'Promoção excluída.' }; carregarPromos(); });
+            });
           } }, 'Excluir')));
     });
     return [tituloTela('Promoções'), avisoEl(), h('div', { class: 'lista-acessos' }, itens.length ? itens : h('p', { class: 'vazio' }, 'Nenhuma promoção cadastrada.'),
