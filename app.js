@@ -60,6 +60,77 @@
     return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#1b1d21' : '#fff';
   }
   function lerSessao() { try { return JSON.parse(localStorage.getItem(CHAVE_SESSAO)); } catch (e) { return null; } }
+  // ---------------------------------------------------------------- lembretes por notificação (opt-in)
+  var FIREBASE_VER = '10.12.2';
+  var CHAVE_PUSH = 'agenda_push_' + slug;
+  function pushConfig() { return window.AGENDA_PUSH && window.AGENDA_PUSH.vapidKey ? window.AGENDA_PUSH : null; }
+  function pushSuportado() { return !!pushConfig() && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window; }
+  function pushToken() { try { return localStorage.getItem(CHAVE_PUSH) || ''; } catch (e) { return ''; } }
+  function pushAtivo() { return pushSuportado() && Notification.permission === 'granted' && !!pushToken(); }
+  function carregarScript(src) {
+    return new Promise(function (ok, erro) {
+      if (document.querySelector('script[src="' + src + '"]')) { ok(); return; }
+      var sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = function () { erro(new Error('script')); }; document.head.appendChild(sc);
+    });
+  }
+  function firebaseMessaging() {
+    var base = 'https://www.gstatic.com/firebasejs/' + FIREBASE_VER + '/';
+    return carregarScript(base + 'firebase-app-compat.js').then(function () { return carregarScript(base + 'firebase-messaging-compat.js'); }).then(function () {
+      var c = pushConfig();
+      if (!window.firebase.apps.length) window.firebase.initializeApp({ apiKey: c.apiKey, projectId: c.projectId, messagingSenderId: c.messagingSenderId, appId: c.appId });
+      return window.firebase.messaging();
+    });
+  }
+  // devolve { ok, motivo }: pede a permissão, obtém o token do aparelho e o registra para este cliente
+  function ativarPush() {
+    if (!pushSuportado()) return Promise.resolve({ ok: false, motivo: 'nao_suportado' });
+    return Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') return { ok: false, motivo: perm === 'denied' ? 'negado' : 'adiado' };
+      return navigator.serviceWorker.ready.then(function (reg) {
+        return firebaseMessaging().then(function (m) { return m.getToken({ vapidKey: pushConfig().vapidKey, serviceWorkerRegistration: reg }); });
+      }).then(function (tok) {
+        if (!tok) return { ok: false, motivo: 'erro' };
+        return chamar({ action: 'pushRegistrar', dispositivo: tok }).then(function (r) {
+          if (!r.ok) return { ok: false, motivo: 'erro' };
+          try { localStorage.setItem(CHAVE_PUSH, tok); } catch (e) { /* ignore */ }
+          return { ok: true };
+        });
+      });
+    }).catch(function () { return { ok: false, motivo: 'erro' }; });
+  }
+  function desativarPush() {
+    var tok = pushToken();
+    try { localStorage.removeItem(CHAVE_PUSH); } catch (e) { /* ignore */ }
+    if (!tok) return Promise.resolve();
+    return chamar({ action: 'pushRemover', dispositivo: tok }).then(function () {
+      return firebaseMessaging().then(function (m) { return m.deleteToken(); }).catch(function () { /* ignore */ });
+    });
+  }
+  var TEXTO_PUSH = { negado: 'As notificações estão bloqueadas para este app. Para receber lembretes, libere-as nas configurações do navegador ou do aparelho.', adiado: 'Você não permitiu as notificações.', erro: 'Não foi possível ativar os lembretes agora. Tente novamente.', nao_suportado: 'Este aparelho ou navegador não permite lembretes por notificação.' };
+  // cartão para a confirmação e para o Perfil
+  function blocoLembretes(convite) {
+    if (!pushConfig()) return null;
+    var el = h('div', { class: 'card lembretes' });
+    function desenhar(aviso) {
+      var itens;
+      if (!pushSuportado()) itens = convite ? [] : [h('b', {}, 'Lembretes por notificação'), h('div', { class: 'pequeno' }, 'Disponível no Android (Chrome). No iPhone, instale o app na tela inicial e use o iOS 16.4 ou superior.')];
+      else if (pushAtivo()) itens = convite
+        ? [h('b', {}, '🔔 Lembretes ativados'), h('div', { class: 'pequeno' }, 'Você receberá um aviso 24 horas e 2 horas antes do horário.')]
+        : [h('b', {}, '🔔 Lembretes ativados neste aparelho'), h('div', { class: 'pequeno' }, 'Aviso 24 horas e 2 horas antes de cada horário.'),
+          h('button', { class: 'btn sec', onclick: function () { desativarPush().then(function () { desenhar(); }); } }, 'Desativar lembretes')];
+      else if (Notification.permission === 'denied') itens = convite ? [] : [h('b', {}, 'Lembretes por notificação'), h('div', { class: 'pequeno' }, TEXTO_PUSH.negado)];
+      else itens = [h('b', {}, convite ? 'Receber lembretes deste horário?' : 'Lembretes por notificação'),
+        h('div', { class: 'pequeno' }, 'Avisamos 24 horas e 2 horas antes, direto no seu celular. Você pode desativar quando quiser.'),
+        h('button', { class: 'btn', onclick: function () { ativarPush().then(function (r) { desenhar(r.ok ? null : TEXTO_PUSH[r.motivo]); }); } }, 'Ativar lembretes')];
+      if (!itens.length) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      if (aviso) itens.push(h('div', { class: 'msg erro', role: 'alert' }, aviso));
+      el.replaceChildren.apply(el, itens);
+    }
+    desenhar();
+    return el;
+  }
+
   function salvarSessao() { try { localStorage.setItem(CHAVE_SESSAO, JSON.stringify({ token: st.token, cliente: st.cliente })); } catch (e) { /* ignore */ } }
   function limparSessao() { try { localStorage.removeItem(CHAVE_SESSAO); } catch (e) { /* ignore */ } st.token = null; st.cliente = null; }
 
@@ -382,6 +453,7 @@
         r.itens.map(function (i) { return h('div', { class: 'item-ag' }, h('div', {}, i.ini + ' – ' + i.fim + '  ' + i.servicoNome), h('div', { class: 'p' }, 'Profissional: ' + i.profissionalNome)); }),
         h('div', { class: 'pequeno', style: 'margin-top:.4rem' }, 'Horários previstos (duração média)')),
       h('a', { class: 'btn', href: linkGoogleAgenda(r), target: '_blank', rel: 'noopener' }, 'Adicionar ao Google Agenda'),
+      blocoLembretes(true),
       h('a', { class: 'btn sec', href: zap, target: '_blank', rel: 'noopener' }, 'Enviar protocolo para meu WhatsApp'),
       h('div', { class: 'centro' }, h('button', { class: 'link', onclick: function () { st.minhas = null; ir('meus'); } }, 'Remarcar ou cancelar')),
       h('p', { class: 'pequeno centro' }, 'Você também recebe o protocolo por mensagem.'));
@@ -487,6 +559,7 @@
       h('h1', {}, 'Meu perfil'),
       h('div', { class: 'card' }, h('b', {}, st.cliente.nome), h('div', { class: 'pequeno' }, telFmt(st.cliente.telefone))),
       blocoOfertas(),
+      blocoLembretes(false),
       st.instalar ? h('button', { class: 'btn', onclick: instalarApp }, 'Instalar o app no celular') : null,
       h('a', { class: 'btn sec', href: base + 'politica.html', target: '_blank', rel: 'noopener' }, 'Política de Privacidade'),
       h('a', { class: 'btn sec', href: base + 'termos.html', target: '_blank', rel: 'noopener' }, 'Termos de Uso'),

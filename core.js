@@ -33,13 +33,15 @@
     Modelos: ['id', 'prestador_id', 'texto', 'ativo'],
     Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo', 'servicos', 'publico'],
     Ofertas: ['cliente_id', 'prestador_id', 'aniv', 'datas', 'aceite_em', 'aceite_versao'],
-    Instalacoes: ['data', 'prestador_id', 'tipo']
+    Instalacoes: ['data', 'prestador_id', 'tipo'],
+    Dispositivos: ['cliente_id', 'prestador_id', 'token', 'criado_em'],
+    Lembretes: ['item_id', 'tipo', 'enviado_em']
   };
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
   const COL_DATA = ['data', 'de', 'ate'];
   const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate', 'ordem'];
-  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos', 'publico', 'aniv', 'datas', 'aceite_em', 'aceite_versao'];
+  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor', 'servicos', 'publico', 'aniv', 'datas', 'aceite_em', 'aceite_versao', 'token', 'item_id', 'tipo', 'enviado_em'];
 
   // ---------- utilidades ----------
   class ErroApi extends Error {
@@ -428,6 +430,66 @@
     if (store.rows('Instalacoes').filter((x) => x.prestador_id === pr.id && x.data === hoje && x.tipo === tipo).length < 3000) store.insert('Instalacoes', { data: hoje, prestador_id: pr.id, tipo: tipo });
     return { registrado: true };
   };
+
+  // ---- lembretes por notificação (opt-in do cliente): o aparelho cadastra um "token" do FCM; o envio é feito por um gatilho periódico
+  ACOES.pushRegistrar = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    const token = String(req.dispositivo || '');
+    if (token.length < 20 || token.length > 4096) falha('token_invalido', 'Não foi possível ativar os lembretes neste aparelho.');
+    const ag = ctx.agora();
+    const novo = { cliente_id: sessao.cid, prestador_id: pr.id, token: token, criado_em: ag.data + ' ' + hm(ag.min) };
+    if (store.rows('Dispositivos').some((d) => d.token === token)) store.update('Dispositivos', (d) => d.token === token, novo);
+    else store.insert('Dispositivos', novo);
+    // no máximo 5 aparelhos por cliente neste estabelecimento: os mais antigos saem
+    const meus = store.rows('Dispositivos').filter((d) => d.cliente_id === sessao.cid && d.prestador_id === pr.id);
+    meus.slice(0, Math.max(0, meus.length - 5)).forEach((d) => store.remove('Dispositivos', (x) => x.token === d.token));
+    return { ativo: true };
+  };
+
+  ACOES.pushRemover = (req, store, ctx) => {
+    const { pr, sessao } = autenticar(req, store, ctx, 'cli');
+    store.remove('Dispositivos', (d) => d.prestador_id === pr.id && d.cliente_id === sessao.cid && d.token === String(req.dispositivo || ''));
+    return { ativo: false };
+  };
+
+  // horário de Brasília (UTC-3, sem horário de verão desde 2019) em milissegundos
+  const epochSP = (data, hhmm) => Date.UTC(Number(data.slice(0, 4)), Number(data.slice(5, 7)) - 1, Number(data.slice(8, 10)), Number(hhmm.slice(0, 2)) + 3, Number(hhmm.slice(3, 5)));
+
+  // chamada a cada ~15 min por um gatilho: lembra 24 h e 2 h antes, uma vez por agendamento (aba Lembretes evita repetição)
+  function enviarLembretes(store, ctx) {
+    const ag = ctx.agora(), H = 3600000;
+    const hoje = ag.data, amanha = somarDias(hoje, 1), depois = somarDias(hoje, 2);
+    const reservas = {}; store.rows('Reservas').forEach((r) => { reservas[r.protocolo] = r; });
+    const feitos = {}; store.rows('Lembretes').forEach((l) => { feitos[l.item_id + '|' + l.tipo] = true; });
+    const porProto = {};
+    store.rows('Itens').filter((i) => i.status === 'agendado' && (i.data === hoje || i.data === amanha || i.data === depois)).forEach((i) => { (porProto[i.protocolo] = porProto[i.protocolo] || []).push(i); });
+    const nomes = {}; store.rows('Servicos').forEach((x) => { nomes[x.id] = x.nome; });
+    const prs = {}; store.rows('Prestadores').forEach((x) => { prs[x.id] = x; });
+    const res = { enviados: 0, removidos: 0, falhas: 0 };
+    Object.keys(porProto).forEach((proto) => {
+      const its = porProto[proto].slice().sort((a, b) => a.ini.localeCompare(b.ini));
+      const primeiro = its[0], falta = epochSP(primeiro.data, primeiro.ini) - ag.epoch;
+      const tipo = falta > 23 * H && falta <= 24 * H ? '24h' : falta > H && falta <= 2 * H ? '2h' : '';
+      if (!tipo || feitos[primeiro.id + '|' + tipo]) return;
+      const rv = reservas[proto];
+      if (rv && rv.criado_em && ag.epoch - epochSP(rv.criado_em.slice(0, 10), rv.criado_em.slice(11, 16)) < 30 * 60000) return;   // acabou de agendar: já viu a confirmação
+      const pr = prs[primeiro.prestador_id]; if (!pr) return;
+      const aparelhos = store.rows('Dispositivos').filter((d) => d.cliente_id === primeiro.cliente_id && d.prestador_id === pr.id);
+      if (!aparelhos.length) return;
+      const quando = primeiro.data === hoje ? 'hoje' : 'amanhã';
+      const msg = {
+        titulo: pr.nome, slug: pr.slug, tag: proto + '-' + tipo,
+        corpo: 'Lembrete: seu horário é ' + quando + ' às ' + primeiro.ini + ' — ' + its.map((i) => nomes[i.servico_id] || '').filter(Boolean).join(' + ') + '.'
+      };
+      let alguem = false, falhou = false;
+      aparelhos.forEach((d) => {
+        const r = ctx.push ? ctx.push(d.token, msg) : 'erro';
+        if (r === 'ok') { res.enviados++; alguem = true; } else if (r === 'invalido') { store.remove('Dispositivos', (x) => x.token === d.token); res.removidos++; } else { res.falhas++; falhou = true; }
+      });
+      if (alguem || !falhou) store.insert('Lembretes', { item_id: primeiro.id, tipo: tipo, enviado_em: ag.data + ' ' + hm(ag.min) });
+    });
+    return res;
+  }
 
   ACOES.config = (req, store, ctx) => {
     const pr = prestadorPorSlug(store, req.slug);
@@ -1200,6 +1262,6 @@
   return {
     TABELAS, COL_HORA, COL_DATA, COL_NUM, COL_TEXTO,
     hm, min, diaSemana, somarDias, dataBR, normalizarTelefone, dataValida,
-    gerarOpcoes, validarCadeia, handle, semear, criarMemStore, criarCtxDemo, hashSimples, ErroApi
+    gerarOpcoes, validarCadeia, handle, enviarLembretes, semear, criarMemStore, criarCtxDemo, hashSimples, ErroApi
   };
 });
