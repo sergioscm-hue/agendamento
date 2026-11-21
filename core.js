@@ -24,17 +24,19 @@
     Bloqueios: ['profissional_id', 'data', 'inicio', 'fim', 'motivo'],
     Clientes: ['id', 'telefone', 'nome', 'criado_em', 'consent_versao', 'consent_em'],
     Vinculos: ['cliente_id', 'prestador_id', 'desde'],
-    Reservas: ['protocolo', 'prestador_id', 'cliente_id', 'data', 'status', 'criado_em', 'cancelado_em', 'cancelado_por'],
+    Reservas: ['protocolo', 'prestador_id', 'cliente_id', 'data', 'status', 'criado_em', 'cancelado_em', 'cancelado_por', 'cancelado_motivo'],
     Itens: ['id', 'protocolo', 'prestador_id', 'profissional_id', 'servico_id', 'cliente_id', 'data', 'ini', 'fim', 'ocup_fim', 'status'],
     Codigos: ['telefone', 'codigo_hash', 'expira_em', 'tentativas'],
     Mensagens: ['quando', 'telefone', 'canal', 'texto', 'status'],
-    Config: ['chave', 'valor']
+    Config: ['chave', 'valor'],
+    Usuarios: ['id', 'prestador_id', 'usuario', 'nome', 'papel', 'profissional_id', 'pode_cancelar', 'pin_hash', 'tentativas', 'bloqueado_ate', 'ativo'],
+    Modelos: ['id', 'prestador_id', 'texto', 'ativo']
   };
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
   const COL_DATA = ['data'];
-  const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas'];
-  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando'];
+  const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate'];
+  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo'];
 
   // ---------- utilidades ----------
   class ErroApi extends Error {
@@ -222,6 +224,9 @@
     disp('P1', [1, 2, 3, 4, 5], '09:00', '12:00'); disp('P1', [1, 2, 3, 4, 5], '13:00', '18:00'); disp('P1', [6], '09:00', '13:00');
     disp('P2', [2, 3, 4, 5, 6], '10:00', '19:00');
     disp('P3', [1, 2, 3, 4, 5], '09:00', '17:00');
+    // equipe de 3 pessoas: Carla (gestora, também atende), Ana e Bruno (profissionais)
+    [['U1', 'carla', 'Carla', 'gestor', 'P3', true, '123456'], ['U2', 'ana', 'Ana', 'profissional', 'P1', true, '111111'], ['U3', 'bruno', 'Bruno', 'profissional', 'P2', true, '222222']]
+      .forEach((u) => t.Usuarios.push({ id: u[0], prestador_id: 'PR1', usuario: u[1], nome: u[2], papel: u[3], profissional_id: u[4], pode_cancelar: u[5], pin_hash: ctx.hash(u[6]), tentativas: 0, bloqueado_ate: 0, ativo: true }));
     return t;
   }
 
@@ -498,7 +503,7 @@
     };
   };
 
-  function cancelarInterno(store, ctx, pr, protocolo, quem, respeitarAntecedencia) {
+  function cancelarInterno(store, ctx, pr, protocolo, quem, respeitarAntecedencia, motivo) {
     return ctx.travar(() => {
       const r = store.rows('Reservas').find((x) => x.protocolo === protocolo && x.prestador_id === pr.id);
       if (!r) falha('reserva_inexistente', 'Reserva não encontrada.');
@@ -510,7 +515,7 @@
         if (faltam < parametros(pr).cancelAntecedenciaMin) falha('cancelamento_fora_do_prazo', 'Prazo de cancelamento encerrado. Entre em contato com o estabelecimento.');
       }
       const ag2 = ctx.agora();
-      store.update('Reservas', (x) => x.protocolo === protocolo, { status: 'cancelado', cancelado_em: ag2.data + ' ' + hm(ag2.min), cancelado_por: quem });
+      store.update('Reservas', (x) => x.protocolo === protocolo, { status: 'cancelado', cancelado_em: ag2.data + ' ' + hm(ag2.min), cancelado_por: quem, cancelado_motivo: motivo || '' });
       store.update('Itens', (i) => i.protocolo === protocolo && i.status === 'agendado', { status: 'cancelado' });
       return { protocolo: protocolo, status: 'cancelado' };
     });
@@ -523,23 +528,76 @@
     return cancelarInterno(store, ctx, pr, req.protocolo, 'cliente', true);
   };
 
-  // --- painel do prestador ---
+  // --- painel da equipe (perfis: gestor e profissional) ---
+  const PIN_RE = /^\d{6}$/;
+  const USUARIO_RE = /^[a-z0-9._-]{3,30}$/;
+  const MAX_TENTATIVAS = 5, BLOQUEIO_MIN = 10;
+  const MODELOS_PADRAO = [
+    'Prezado(a) {nome}, infelizmente não poderemos atendê-lo(a) em {data}, às {hora}, por motivo de força maior. Pedimos desculpas pelo transtorno.',
+    'Prezado(a) {nome}, precisamos cancelar o seu atendimento de {data}, às {hora}, devido a um imprevisto. Pedimos desculpas e ficamos à disposição para remarcar.',
+    'Prezado(a) {nome}, por motivo de saúde do(a) profissional não conseguiremos realizar o seu atendimento de {data}, às {hora}. Pedimos desculpas e teremos prazer em reagendar.'
+  ];
+
+  function sessaoPainel(ctx, pr, u) {
+    const extra = { uid: u.id || '', papel: u.papel, legado: !!u.legado };
+    return {
+      token: emitirToken(ctx, 'adm', pr, extra, 12),
+      prestador: { nome: pr.nome, cor: pr.cor },
+      usuario: { nome: u.nome, papel: u.papel, profissionalId: u.profissional_id || '', podeCancelar: u.canc }
+    };
+  }
+  const usuariosAtivos = (store, pr) => store.rows('Usuarios').filter((u) => u.prestador_id === pr.id && ativo(u));
+
   ACOES.painelLogin = (req, store, ctx) => {
     const pr = prestadorPorSlug(store, req.slug);
-    if (!req.pin || pr.pin_hash !== ctx.hash(String(req.pin))) falha('pin_invalido', 'PIN incorreto.');
-    return { token: emitirToken(ctx, 'adm', pr, {}, 12), prestador: { nome: pr.nome, cor: pr.cor } };
+    const lista = usuariosAtivos(store, pr);
+    const usuario = String(req.usuario || '').trim().toLowerCase();
+    const ag = ctx.agora();
+    if (!usuario) {
+      // primeiro acesso, antes de existirem usuários: vale o PIN único do estabelecimento (gestor)
+      if (lista.length) falha('credenciais_invalidas', 'Informe o usuário e o PIN.');
+      if (!req.pin || pr.pin_hash !== ctx.hash(String(req.pin))) falha('pin_invalido', 'PIN incorreto.');
+      return sessaoPainel(ctx, pr, { id: '', nome: 'Gestor', papel: 'gestor', profissional_id: '', canc: true, legado: true });
+    }
+    const u = lista.find((x) => x.usuario === usuario);
+    if (!u) falha('credenciais_invalidas', 'Usuário ou PIN incorreto.');
+    if (numCfg(u.bloqueado_ate, 0) > ag.epoch) falha('acesso_bloqueado', 'Acesso bloqueado por alguns minutos após várias tentativas incorretas.');
+    if (!req.pin || u.pin_hash !== ctx.hash(String(req.pin))) {
+      const tent = numCfg(u.tentativas, 0) + 1;
+      if (tent >= MAX_TENTATIVAS) store.update('Usuarios', (x) => x.id === u.id, { tentativas: 0, bloqueado_ate: ag.epoch + BLOQUEIO_MIN * 60000 });
+      else store.update('Usuarios', (x) => x.id === u.id, { tentativas: tent });
+      falha('credenciais_invalidas', 'Usuário ou PIN incorreto.');
+    }
+    if (numCfg(u.tentativas, 0) || numCfg(u.bloqueado_ate, 0)) store.update('Usuarios', (x) => x.id === u.id, { tentativas: 0, bloqueado_ate: 0 });
+    return sessaoPainel(ctx, pr, Object.assign({}, u, { canc: u.papel === 'gestor' || truthy(u.pode_cancelar) }));
   };
+  const truthy = (v) => v === true || v === 1 || ['TRUE', 'S', 'SIM', '1'].indexOf(String(v).toUpperCase()) >= 0;
+
+  /** Autentica e relê o usuário a cada chamada: mudanças de perfil, permissão e desativação valem na hora. */
+  function autenticarPainel(req, store, ctx) {
+    const { pr, sessao } = autenticar(req, store, ctx, 'adm');
+    const lista = usuariosAtivos(store, pr);
+    if (sessao.legado) {
+      if (lista.length) falha('sessao_expirada', 'Sessão expirada. Entre novamente.');
+      return { pr: pr, u: { id: '', nome: 'Gestor', papel: 'gestor', prof: '', canc: true } };
+    }
+    const u = lista.find((x) => x.id === sessao.uid);
+    if (!u) falha('sessao_expirada', 'Sessão expirada. Entre novamente.');
+    return { pr: pr, u: { id: u.id, nome: u.nome, papel: u.papel, prof: u.profissional_id || '', canc: u.papel === 'gestor' || truthy(u.pode_cancelar) } };
+  }
+  const exigirGestor = (u) => { if (u.papel !== 'gestor') falha('nao_autorizado', 'Acesso restrito ao gestor.'); };
+  const itemPermitido = (u, i) => u.papel === 'gestor' || i.profissional_id === u.prof;
 
   ACOES.painelAgenda = (req, store, ctx) => {
-    const { pr } = autenticar(req, store, ctx, 'adm');
+    const { pr, u } = autenticarPainel(req, store, ctx);
     if (!dataValida(req.data)) falha('data_invalida', 'Data inválida.');
-    const profs = store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p));
+    const profs = store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p) && (u.papel === 'gestor' || p.id === u.prof));
     const servs = {}; store.rows('Servicos').forEach((s) => { servs[s.id] = s.nome; });
     const clis = {}; store.rows('Clientes').forEach((c) => { clis[c.id] = c; });
     const itens = store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.data === req.data);
     const bloqueios = store.rows('Bloqueios').filter((b) => b.data === req.data && (b.profissional_id === '*' || profs.some((p) => p.id === b.profissional_id)));
     return {
-      data: req.data,
+      data: req.data, papel: u.papel, podeCancelar: u.canc, usuarioNome: u.nome,
       profissionais: profs.map((p) => ({
         id: p.id, nome: p.nome,
         itens: itens.filter((i) => i.profissional_id === p.id).sort((a, b) => a.ini.localeCompare(b.ini)).map((i) => ({
@@ -551,27 +609,116 @@
     };
   };
 
+  // --- cancelamento com mensagem ao cliente ---
+  const primeiroNome = (n) => String(n || '').trim().split(/\s+/)[0] || 'cliente';
+  function dadosReserva(store, pr, protocolo, u) {
+    const r = store.rows('Reservas').find((x) => x.protocolo === protocolo && x.prestador_id === pr.id);
+    if (!r) falha('reserva_inexistente', 'Reserva não encontrada.');
+    const itens = store.rows('Itens').filter((i) => i.protocolo === protocolo);
+    if (u.papel !== 'gestor' && (!itens.length || itens.some((i) => i.profissional_id !== u.prof))) {
+      falha('reserva_de_outro_profissional', 'Este agendamento inclui serviços de outro profissional. Peça ao gestor para cancelá-lo.');
+    }
+    const cli = store.rows('Clientes').find((c) => c.id === r.cliente_id) || {};
+    const ini = itens.map((i) => i.ini).sort()[0] || '';
+    return { r: r, itens: itens, cli: cli, vars: { nome: primeiroNome(cli.nome), data: dataBR(r.data), hora: ini, protocolo: protocolo, estabelecimento: pr.nome } };
+  }
+  const aplicarModelo = (txt, v) => String(txt).replace(/\{(nome|data|hora|protocolo|estabelecimento)\}/g, (m, k) => v[k] || '');
+  function modelosDoPrestador(store, pr) {
+    const proprios = store.rows('Modelos').filter((m) => m.prestador_id === pr.id && ativo(m));
+    return proprios.length ? proprios.map((m) => ({ id: m.id, texto: m.texto })) : MODELOS_PADRAO.map((t, i) => ({ id: 'M' + (i + 1), texto: t }));
+  }
+
+  ACOES.painelModelos = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    const d = dadosReserva(store, pr, req.protocolo, u);
+    return { modelos: modelosDoPrestador(store, pr).map((m) => ({ id: m.id, texto: aplicarModelo(m.texto, d.vars) })), cliente: d.vars.nome };
+  };
+
   ACOES.painelCancelar = (req, store, ctx) => {
-    const { pr } = autenticar(req, store, ctx, 'adm');
-    return cancelarInterno(store, ctx, pr, req.protocolo, 'prestador', false);
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    if (!u.canc) falha('sem_permissao', 'Você não tem permissão para cancelar agendamentos.');
+    const d = dadosReserva(store, pr, req.protocolo, u);
+    const modelo = req.modeloId ? modelosDoPrestador(store, pr).find((m) => m.id === req.modeloId) : null;
+    if (req.modeloId && !modelo) falha('modelo_invalido', 'Mensagem pronta inválida.');
+    const livre = String(req.texto || '').trim().slice(0, 300);
+    if (!modelo && !livre) falha('motivo_obrigatorio', 'Escolha uma mensagem pronta ou escreva o motivo do cancelamento.');
+    const texto = modelo
+      ? aplicarModelo(modelo.texto, d.vars) + (livre ? ' ' + livre : '')
+      : 'Prezado(a) ' + d.vars.nome + ', o seu agendamento ' + d.vars.protocolo + ' de ' + d.vars.data + ', às ' + d.vars.hora + ', em ' + pr.nome + ', foi cancelado. Motivo: ' + livre;
+    cancelarInterno(store, ctx, pr, req.protocolo, u.papel === 'gestor' ? 'prestador' : 'profissional', false, texto.slice(0, 500));
+    let fila = false;
+    if (ctx.enviarMensagem && d.cli.telefone) { try { ctx.enviarMensagem(String(d.cli.telefone), texto, 'whatsapp'); fila = true; } catch (e) { /* não desfaz o cancelamento */ } }
+    return { protocolo: req.protocolo, status: 'cancelado', mensagem: texto, telefone: String(d.cli.telefone || ''), emFila: fila };
   };
 
   ACOES.painelStatus = (req, store, ctx) => {
-    const { pr } = autenticar(req, store, ctx, 'adm');
+    const { pr, u } = autenticarPainel(req, store, ctx);
     if (['agendado', 'realizado', 'faltou'].indexOf(req.status) < 0) falha('status_invalido', 'Status inválido.');
-    const n = store.update('Itens', (i) => i.id === req.itemId && i.prestador_id === pr.id && i.status !== 'cancelado', { status: req.status });
+    const n = store.update('Itens', (i) => i.id === req.itemId && i.prestador_id === pr.id && i.status !== 'cancelado' && itemPermitido(u, i), { status: req.status });
     if (!n) falha('item_inexistente', 'Item não encontrado.');
     return { itemId: req.itemId, status: req.status };
   };
 
   ACOES.painelBloquear = (req, store, ctx) => {
-    const { pr } = autenticar(req, store, ctx, 'adm');
+    const { pr, u } = autenticarPainel(req, store, ctx);
     if (!dataValida(req.data)) falha('data_invalida', 'Data inválida.');
     const i = min(req.ini), f = min(req.fim);
     if (isNaN(i) || isNaN(f) || f <= i) falha('horario_invalido', 'Horário inválido.');
-    if (req.profissionalId !== '*' && !store.rows('Profissionais').some((p) => p.id === req.profissionalId && p.prestador_id === pr.id)) falha('profissional_invalido', 'Profissional inválido.');
-    store.insert('Bloqueios', { profissional_id: req.profissionalId, data: req.data, inicio: hm(i), fim: hm(f), motivo: String(req.motivo || '').slice(0, 80) });
+    const alvo = u.papel === 'gestor' ? req.profissionalId : u.prof;
+    if (alvo !== '*' && !store.rows('Profissionais').some((p) => p.id === alvo && p.prestador_id === pr.id)) falha('profissional_invalido', 'Profissional inválido.');
+    store.insert('Bloqueios', { profissional_id: alvo, data: req.data, inicio: hm(i), fim: hm(f), motivo: String(req.motivo || '').slice(0, 80) });
     return { bloqueado: true };
+  };
+
+  // --- acessos da equipe (somente gestor) ---
+  const publico = (u, profs) => ({
+    id: u.id, usuario: u.usuario, nome: u.nome, papel: u.papel, profissionalId: u.profissional_id || '',
+    profissionalNome: (profs.find((p) => p.id === u.profissional_id) || {}).nome || '', podeCancelar: u.papel === 'gestor' || truthy(u.pode_cancelar), ativo: ativo(u)
+  });
+
+  ACOES.painelUsuarios = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const profs = store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p));
+    return {
+      usuarios: store.rows('Usuarios').filter((x) => x.prestador_id === pr.id).map((x) => publico(x, profs)),
+      profissionais: profs.map((p) => ({ id: p.id, nome: p.nome })), eu: u.id
+    };
+  };
+
+  ACOES.painelUsuarioSalvar = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const todos = store.rows('Usuarios').filter((x) => x.prestador_id === pr.id);
+    const atual = req.id ? todos.find((x) => x.id === req.id) : null;
+    if (req.id && !atual) falha('usuario_inexistente', 'Usuário não encontrado.');
+    const usuario = String(req.usuario || (atual && atual.usuario) || '').trim().toLowerCase();
+    if (!USUARIO_RE.test(usuario)) falha('usuario_invalido', 'Usuário: 3 a 30 caracteres (letras minúsculas, números, ponto, hífen ou sublinhado).');
+    if (todos.some((x) => x.usuario === usuario && (!atual || x.id !== atual.id))) falha('usuario_duplicado', 'Já existe um usuário com este nome.');
+    const nome = String(req.nome || (atual && atual.nome) || '').trim().slice(0, 60);
+    if (!nome) falha('nome_obrigatorio', 'Informe o nome.');
+    const papel = req.papel || (atual && atual.papel) || 'profissional';
+    if (['gestor', 'profissional'].indexOf(papel) < 0) falha('papel_invalido', 'Perfil inválido.');
+    const profId = req.profissionalId !== undefined ? String(req.profissionalId || '') : (atual ? atual.profissional_id : '');
+    if (profId && !store.rows('Profissionais').some((p) => p.id === profId && p.prestador_id === pr.id)) falha('profissional_invalido', 'Profissional inválido.');
+    if (papel === 'profissional' && !profId) falha('profissional_obrigatorio', 'Escolha o profissional que este usuário representa.');
+    const ativoNovo = req.ativo === undefined ? (atual ? ativo(atual) : true) : !!req.ativo;
+    const gestoresAtivos = todos.filter((x) => x.papel === 'gestor' && ativo(x) && (!atual || x.id !== atual.id)).length + (papel === 'gestor' && ativoNovo ? 1 : 0);
+    if (gestoresAtivos < 1) falha('sem_gestor', 'A equipe precisa ter ao menos um gestor ativo.');
+    if (atual && atual.id === u.id && (!ativoNovo || papel !== 'gestor')) falha('proprio_acesso', 'Você não pode desativar nem rebaixar o seu próprio acesso.');
+    const pin = req.pin === undefined || req.pin === '' ? null : String(req.pin);
+    if (!atual && !pin) falha('pin_obrigatorio', 'Defina um PIN de 6 dígitos.');
+    if (pin !== null && !PIN_RE.test(pin)) falha('pin_invalido', 'O PIN deve ter exatamente 6 dígitos.');
+    const campos = { usuario: usuario, nome: nome, papel: papel, profissional_id: profId, pode_cancelar: papel === 'gestor' ? true : !!req.podeCancelar, ativo: ativoNovo };
+    if (req.podeCancelar === undefined && atual) campos.pode_cancelar = truthy(atual.pode_cancelar) || papel === 'gestor';
+    if (pin !== null) Object.assign(campos, { pin_hash: ctx.hash(pin), tentativas: 0, bloqueado_ate: 0 });
+    if (atual) {
+      store.update('Usuarios', (x) => x.id === atual.id, campos);
+      return { id: atual.id };
+    }
+    const n = store.rows('Usuarios').reduce((m, x) => Math.max(m, Number(String(x.id).replace(/\D/g, '')) || 0), 0) + 1;
+    store.insert('Usuarios', Object.assign({ id: 'U' + n, prestador_id: pr.id, tentativas: 0, bloqueado_ate: 0 }, campos));
+    return { id: 'U' + n };
   };
 
   /** Ponto de entrada único da API. */

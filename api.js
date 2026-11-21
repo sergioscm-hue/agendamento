@@ -6,7 +6,7 @@
   'use strict';
   var url = window.AGENDA_API_URL || '';
   var demo = !url || /[?&]demo=1\b/.test(location.search);
-  var CHAVE = 'agenda_demo_v1';
+  var CHAVE = 'agenda_demo_v2';
   var store = null, ctx = null;
 
   function iniciarDemo() {

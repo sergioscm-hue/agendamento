@@ -135,3 +135,26 @@ details.bloq summary { cursor: pointer; font-weight: 700; min-height: 40px; disp
 .aviso-modelo { background: #fff7e0; border: 1px solid #f0d58c; padding: .75rem 1rem; border-radius: 10px; font-size: .9rem; }
 
 @media (prefers-reduced-motion: no-preference) { .card, .btn { transition: border-color .15s, background .15s, opacity .15s; } }
+
+/* ---- painel: abas, cancelamento com mensagem, acessos ---- */
+.painel .abas { display: flex; gap: .4rem; padding: .6rem 1.25rem 0; border-bottom: 1px solid var(--line); }
+.painel .abas button { min-height: 42px; padding: 0 1rem; border: 0; border-bottom: 3px solid transparent; background: none; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; }
+.painel .abas button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.filtros { display: flex; flex-wrap: wrap; gap: .4rem; padding: .7rem 1.25rem 0; }
+.filtros button { min-height: 36px; padding: 0 .9rem; border-radius: 999px; border: 1.5px solid var(--line); background: #fff; font: inherit; font-size: .85rem; cursor: pointer; }
+.filtros button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.cancelar-box { margin-top: .6rem; border: 1.8px solid var(--err); border-radius: 12px; padding: .7rem .8rem; background: #fffafa; }
+.cancelar-box h4 { margin: 0 0 .4rem; font-size: .95rem; }
+.cancelar-box .opcao { display: flex; gap: .55rem; align-items: flex-start; padding: .45rem .5rem; border: 1.5px solid var(--line); border-radius: 10px; margin-bottom: .4rem; background: #fff; font-size: .85rem; cursor: pointer; }
+.cancelar-box .opcao input { width: auto; min-height: 0; margin-top: .2rem; }
+.cancelar-box textarea { width: 100%; min-height: 70px; font: inherit; padding: .5rem .6rem; border: 1.5px solid var(--line); border-radius: 10px; resize: vertical; }
+.cancelar-box .previa { font-size: .85rem; background: var(--soft); border-radius: 10px; padding: .6rem .7rem; margin: .4rem 0; }
+.lista-acessos { padding: 1rem 1.25rem; display: grid; gap: .7rem; }
+.usuario { border: 1.5px solid var(--line); border-radius: 12px; padding: .7rem .85rem; }
+.usuario.inativo { background: #f3f4f6; color: var(--muted); }
+.usuario .topo { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.usuario .topo strong { flex: 1; }
+.usuario .meta { font-size: .85rem; color: var(--muted); margin-top: .2rem; }
+.form-acesso { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin-top: .7rem; align-items: end; }
+.form-acesso label.chk { display: flex; gap: .5rem; align-items: center; min-height: 44px; }
+.form-acesso label.chk input { width: auto; min-height: 0; }
