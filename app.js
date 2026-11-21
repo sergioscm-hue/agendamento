@@ -117,7 +117,11 @@
       else if (pushAtivo()) itens = convite
         ? [h('b', {}, '🔔 Lembretes ativados'), h('div', { class: 'pequeno' }, 'Você receberá um aviso 24 horas e 2 horas antes do horário.')]
         : [h('b', {}, '🔔 Lembretes ativados neste aparelho'), h('div', { class: 'pequeno' }, 'Aviso 24 horas e 2 horas antes de cada horário.'),
-          h('button', { class: 'btn sec', onclick: function () { desativarPush().then(function () { desenhar(); }); } }, 'Desativar lembretes')];
+          h('button', { class: 'btn sec', onclick: function () { desativarPush().then(function () { desenhar(); }); } }, 'Desativar lembretes'),
+          // TESTE-LEMBRETE (remover depois do teste)
+          h('button', { class: 'btn sec', onclick: function () {
+            chamar({ action: 'pushTeste', dispositivo: pushToken() }).then(function (r) { desenhar(r.ok && r.enviado ? 'Teste enviado: a notificação deve chegar em instantes.' : (r.mensagem || 'Não foi possível enviar o teste agora.')); });
+          } }, 'Testar lembrete agora')];
       else if (Notification.permission === 'denied') itens = convite ? [] : [h('b', {}, 'Lembretes por notificação'), h('div', { class: 'pequeno' }, TEXTO_PUSH.negado)];
       else itens = [h('b', {}, convite ? 'Receber lembretes deste horário?' : 'Lembretes por notificação'),
         h('div', { class: 'pequeno' }, 'Avisamos 24 horas e 2 horas antes, direto no seu celular. Você pode desativar quando quiser.'),
