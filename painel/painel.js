@@ -670,7 +670,7 @@
   function telaClientes() {
     if (!st.cli) return carregando('Clientes');
     var cs = st.cli;
-    var busca = h('div', { class: 'form-acesso', style: 'padding:0 1.25rem' },
+    var busca = h('div', { class: 'busca-clientes' },
       campo('Buscar por nome ou telefone', h('input', { type: 'search', value: st.cbusca, oninput: function (e) { st.cbusca = e.target.value; }, onkeydown: function (e) { if (e.key === 'Enter') carregarClientes(); } })),
       h('button', { class: 'btn mini', onclick: carregarClientes }, 'Buscar'));
     var itens = cs.clientes.map(function (c) {

@@ -208,3 +208,9 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .ordenar .arrastar { cursor: grab; touch-action: none; font-size: 1.2rem; }
 .usuario.arrastando { position: relative; z-index: 5; box-shadow: 0 6px 18px rgba(0,0,0,.2); background: #fff; opacity: .95; }
 .usuario.alvo { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+/* busca de clientes: largura total e altura dobrada */
+.busca-clientes { display: block; padding: .7rem 1.25rem 0; }
+.busca-clientes label { display: block; width: 100%; }
+.busca-clientes input[type=search] { width: 100%; box-sizing: border-box; min-height: 88px; font-size: 1.1rem; }
+.busca-clientes .btn { margin-top: .6rem; }
