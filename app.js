@@ -120,14 +120,25 @@
           h('button', { class: 'btn sec', onclick: function () { desativarPush().then(function () { desenhar(); }); } }, 'Desativar lembretes'),
           // TESTE-LEMBRETE (remover depois do teste)
           h('button', { class: 'btn sec', onclick: function () {
-            // registra de novo o aparelho (se a linha sumiu da planilha) e só então envia o teste
-            chamar({ action: 'pushRegistrar', dispositivo: pushToken() }).then(function (reg) {
-              if (!reg.ok) { desenhar('Teste v4: falhou ao registrar o aparelho (' + (reg.mensagem || reg.erro || '?') + ').'); return; }
-              return chamar({ action: 'pushTeste', dispositivo: pushToken() }).then(function (r) {
-                var bruto = ''; try { bruto = JSON.stringify(r).slice(0, 300); } catch (e) { /* ignore */ }
-                desenhar((r.ok && r.enviado ? 'Teste v4: enviado. A notificação deve chegar em instantes. ' : 'Teste v4: não enviado. ') + 'Resposta: ' + bruto);
+            // gera um token novo, registra o aparelho e só então envia o teste
+            var velho = pushToken();
+            navigator.serviceWorker.ready.then(function (reg) {
+              return firebaseMessaging().then(function (m) {
+                return m.deleteToken().catch(function () { /* ignore */ }).then(function () { return m.getToken({ vapidKey: pushConfig().vapidKey, serviceWorkerRegistration: reg }); });
               });
-            });
+            }).then(function (tok) {
+              if (!tok) { desenhar('Teste v5: o Firebase não devolveu um token novo.'); return; }
+              try { localStorage.setItem(CHAVE_PUSH, tok); } catch (e) { /* ignore */ }
+              return (velho && velho !== tok ? chamar({ action: 'pushRemover', dispositivo: velho }) : Promise.resolve()).then(function () {
+                return chamar({ action: 'pushRegistrar', dispositivo: tok });
+              }).then(function (reg) {
+                if (!reg.ok) { desenhar('Teste v5: falhou ao registrar o aparelho (' + (reg.mensagem || reg.erro || '?') + ').'); return; }
+                return chamar({ action: 'pushTeste', dispositivo: tok }).then(function (r) {
+                  var d = r.data || {}, bruto = ''; try { bruto = JSON.stringify(r).slice(0, 300); } catch (e) { /* ignore */ }
+                  desenhar(r.ok && d.enviado ? 'Teste v5: enviado. A notificação deve chegar em instantes.' : 'Teste v5: não enviado. ' + (d.motivo || r.mensagem || '') + ' ' + bruto);
+                });
+              });
+            }).catch(function (e) { desenhar('Teste v5: erro ' + (e && e.message ? e.message : e)); });
           } }, 'Testar lembrete agora')];
       else if (Notification.permission === 'denied') itens = convite ? [] : [h('b', {}, 'Lembretes por notificação'), h('div', { class: 'pequeno' }, TEXTO_PUSH.negado)];
       else itens = [h('b', {}, convite ? 'Receber lembretes deste horário?' : 'Lembretes por notificação'),
