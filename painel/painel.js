@@ -29,7 +29,7 @@
   try {
     st.token = sessionStorage.getItem(CHAVE);
     var guardado = JSON.parse(sessionStorage.getItem(CHAVE + ':u') || 'null');
-    if (guardado) { st.prestador = guardado.prestador; st.usuario = guardado.usuario; }
+    if (guardado) { st.prestador = guardado.prestador; st.usuario = guardado.usuario; if (st.usuario && st.usuario.papel === 'gestor') st.aba = 'inicio'; }
   } catch (e) { /* ignore */ }
 
   function h(tag, props) {
@@ -87,7 +87,7 @@
       Api.chamar({ action: 'painelLogin', slug: slug, usuario: st.login.usuario, pin: st.login.pin }).then(function (r) {
         if (!r.ok) { st.aviso = { tipo: 'erro', texto: r.mensagem }; render(); return; }
         st.token = r.data.token; st.prestador = r.data.prestador.nome; st.usuario = r.data.usuario;
-        st.login = { usuario: '', pin: '' }; st.aviso = null; st.aba = 'agenda';
+        st.login = { usuario: '', pin: '' }; st.aviso = null; st.aba = st.usuario && st.usuario.papel === 'gestor' ? 'inicio' : 'agenda';
         try { sessionStorage.setItem(CHAVE, st.token); sessionStorage.setItem(CHAVE + ':u', JSON.stringify({ prestador: st.prestador, usuario: st.usuario })); } catch (e) { /* ignore */ }
         carregar();
       });
@@ -221,6 +221,13 @@
     st.aba = id; st.aviso = null; st.cancel = null; st.form = null; st.fprof = null; st.fsvc = null; st.folga = null; st.hconf = null; st.fpromo = null;
     render(); carregarAba();
   }
+  var ICONES = { agenda: '📅', relatorios: '📊', clientes: '👥', promocoes: '🎉', horarios: '🕒', equipe: '🧑‍🤝‍🧑', servicos: '✂️', acessos: '🔑' };
+  function telaInicio() {
+    var ids = ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'];
+    return h('div', { class: 'inicio-cards' }, ids.map(function (id) {
+      return h('button', { class: 'card-inicio', onclick: function () { irParaAba(id); } }, h('span', { class: 'ci-icone', 'aria-hidden': 'true' }, ICONES[id]), h('span', { class: 'ci-rotulo' }, ROTULOS[id]));
+    }));
+  }
   function barra() {
     var quem = st.usuario ? st.usuario.nome + (ehGestor() ? ' (gestor)' : '') : '';
     var topo = h('div', { class: 'barra' }, h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
@@ -228,6 +235,10 @@
       h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
     var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
     var rot = function (id) { return !ehGestor() ? ({ agenda: 'Minha agenda', relatorios: 'Meu resumo', horarios: 'Meu horário' })[id] : ROTULOS[id]; };
+    if (ehGestor()) {
+      // gestor: a navegação é a tela inicial de cartões; nas demais telas, um botão volta a ela
+      return st.aba === 'inicio' ? [topo] : [topo, h('div', { class: 'voltar-inicio' }, h('button', { class: 'btn mini sec', onclick: function () { irParaAba('inicio'); } }, '‹ Início'), h('strong', {}, ROTULOS[st.aba] || ''))];
+    }
     var abas = ids.map(function (id) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { irParaAba(id); } }, rot(id)); });
     return [topo, h('div', { class: 'abas', role: 'navigation' }, abas)];
   }
@@ -784,7 +795,7 @@
 
   function render() {
     if (!st.token) { raiz.replaceChildren(telaLogin()); return; }
-    var corpo = !ehGestor() && st.aba !== 'agenda' && st.aba !== 'horarios' && st.aba !== 'relatorios' ? telaAgenda()
+    var corpo = ehGestor() && st.aba === 'inicio' ? telaInicio() : !ehGestor() && st.aba !== 'agenda' && st.aba !== 'horarios' && st.aba !== 'relatorios' ? telaAgenda()
       : st.aba === 'promocoes' && ehGestor() ? telaPromos() : st.aba === 'relatorios' ? telaRelatorios() : st.aba === 'clientes' && ehGestor() ? telaClientes()
       : st.aba === 'acessos' && ehGestor() ? telaAcessos() : st.aba === 'horarios' ? telaHorarios()
       : st.aba === 'equipe' && ehGestor() ? telaEquipe() : st.aba === 'servicos' && ehGestor() ? telaServicos() : telaAgenda();

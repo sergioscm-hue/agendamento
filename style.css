@@ -214,3 +214,10 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .busca-clientes label { display: block; width: 100%; }
 .busca-clientes input[type=search] { width: 100%; box-sizing: border-box; min-height: 60px; font-size: 1.1rem; }
 .busca-clientes .btn { margin-top: .6rem; }
+
+/* painel do gestor: tela inicial de cartões e botão de volta */
+.inicio-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; padding: 1rem 1.25rem; }
+.card-inicio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; min-height: 112px; padding: .8rem; border: 1px solid var(--line, #d9dce1); border-radius: 16px; background: var(--chip, #f2f3f5); color: inherit; font: inherit; font-weight: 700; cursor: pointer; }
+.card-inicio:active { transform: scale(.98); }
+.ci-icone { font-size: 2rem; line-height: 1; }
+.voltar-inicio { display: flex; align-items: center; gap: .8rem; padding: .6rem 1.25rem 0; }
