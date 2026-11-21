@@ -221,3 +221,7 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .card-inicio:active { transform: scale(.98); }
 .ci-icone { font-size: 2rem; line-height: 1; }
 .voltar-inicio { display: flex; align-items: center; gap: .8rem; padding: .6rem 1.25rem 0; }
+
+/* profissional: três abas curtas dividem a largura, sem rolagem */
+.painel .abas button:only-of-type, .painel .abas.tres button { flex: 1 1 0; padding: 0 .4rem; }
+.painel .abas.tres { overflow-x: visible; }

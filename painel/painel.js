@@ -234,13 +234,13 @@
       h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
       h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
     var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
-    var rot = function (id) { return !ehGestor() ? ({ agenda: 'Minha agenda', relatorios: 'Meu resumo', horarios: 'Meu horário' })[id] : ROTULOS[id]; };
+    var rot = function (id) { return !ehGestor() ? ({ agenda: 'Agenda', relatorios: 'Resumo', horarios: 'Horário' })[id] : ROTULOS[id]; };
     if (ehGestor()) {
       // gestor: a navegação é a tela inicial de cartões; nas demais telas, um botão volta a ela
       return st.aba === 'inicio' ? [topo] : [topo, h('div', { class: 'voltar-inicio' }, h('button', { class: 'btn mini sec', onclick: function () { irParaAba('inicio'); } }, '‹ Início'), h('strong', {}, ROTULOS[st.aba] || ''))];
     }
     var abas = ids.map(function (id) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { irParaAba(id); } }, rot(id)); });
-    return [topo, h('div', { class: 'abas', role: 'navigation' }, abas)];
+    return [topo, h('div', { class: 'abas' + (abas.length <= 3 ? ' tres' : ''), role: 'navigation' }, abas)];
   }
 
   function telaAgenda() {
