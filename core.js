@@ -165,6 +165,14 @@
         t[n].forEach((r) => { if (onde(r)) { Object.assign(r, patch); c++; } });
         if (c && persistir) persistir(t);
         return c;
+      },
+      remove: (n, onde) => {
+        const antes = t[n].length;
+        const manter = t[n].filter((r) => !onde(r));
+        t[n].length = 0; manter.forEach((r) => t[n].push(r));
+        const c = antes - manter.length;
+        if (c && persistir) persistir(t);
+        return c;
       }
     };
   }
@@ -694,7 +702,8 @@
     const alvo = u.papel === 'gestor' ? req.profissionalId : u.prof;
     if (alvo !== '*' && !store.rows('Profissionais').some((p) => p.id === alvo && p.prestador_id === pr.id)) falha('profissional_invalido', 'Profissional inválido.');
     store.insert('Bloqueios', { profissional_id: alvo, data: req.data, inicio: hm(i), fim: hm(f), motivo: String(req.motivo || '').slice(0, 80) });
-    return { bloqueado: true };
+    const conflitos = store.rows('Itens').filter((x) => x.prestador_id === pr.id && x.data === req.data && x.status === 'agendado' && (alvo === '*' || x.profissional_id === alvo) && min(x.ini) < f && i < min(x.ocup_fim)).length;
+    return { bloqueado: true, conflitos: conflitos };
   };
 
   // --- acessos da equipe (somente gestor) ---
@@ -746,6 +755,156 @@
     const n = store.rows('Usuarios').reduce((m, x) => Math.max(m, Number(String(x.id).replace(/\D/g, '')) || 0), 0) + 1;
     store.insert('Usuarios', Object.assign({ id: 'U' + n, prestador_id: pr.id, tentativas: 0, bloqueado_ate: 0 }, campos));
     return { id: 'U' + n };
+  };
+
+  // --- cadastros do gestor: equipe, serviços e horários ---
+  const horaOk = (v) => /^\d{2}:\d{2}$/.test(String(v)) && min(v) <= 1439;
+  const proximoId = (rows, letra) => letra + (rows.reduce((m, x) => Math.max(m, Number(String(x.id).replace(/\D/g, '')) || 0), 0) + 1);
+  const durOk = (v) => Number.isInteger(Number(v)) && Number(v) >= 5 && Number(v) <= 480;
+  const profsDo = (store, pr) => store.rows('Profissionais').filter((p) => p.prestador_id === pr.id);
+  const servsDo = (store, pr) => store.rows('Servicos').filter((x) => x.prestador_id === pr.id);
+  const futurosDoProf = (store, pr, ctx, profId) => store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.profissional_id === profId && i.status === 'agendado' && i.data >= ctx.agora().data);
+
+  ACOES.painelEquipe = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const servs = servsDo(store, pr), ps = store.rows('ProfServ'), users = store.rows('Usuarios').filter((x) => x.prestador_id === pr.id && ativo(x));
+    return {
+      profissionais: profsDo(store, pr).map((p) => ({
+        id: p.id, nome: p.nome, ativo: ativo(p),
+        servicoIds: ps.filter((x) => x.profissional_id === p.id && servs.some((s) => s.id === x.servico_id)).map((x) => x.servico_id),
+        acessos: users.filter((x) => x.profissional_id === p.id).map((x) => x.nome)
+      })),
+      servicos: servs.filter(ativo).map((s) => ({ id: s.id, nome: s.nome }))
+    };
+  };
+
+  ACOES.painelProfissionalSalvar = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const todos = profsDo(store, pr);
+    const atual = req.id ? todos.find((p) => p.id === req.id) : null;
+    if (req.id && !atual) falha('profissional_invalido', 'Profissional não encontrado.');
+    const nome = String(req.nome !== undefined ? req.nome : (atual && atual.nome) || '').trim().slice(0, 60);
+    if (!nome) falha('nome_obrigatorio', 'Informe o nome do profissional.');
+    const ativoNovo = req.ativo === undefined ? (atual ? ativo(atual) : true) : !!req.ativo;
+    const servs = servsDo(store, pr);
+    const ids = req.servicoIds === undefined ? null : Array.from(new Set(req.servicoIds || []));
+    if (ids && ids.some((id) => !servs.some((s) => s.id === id))) falha('servico_invalido', 'Serviço inválido.');
+    const id = atual ? atual.id : proximoId(store.rows('Profissionais'), 'P');
+    if (atual) store.update('Profissionais', (p) => p.id === id, { nome: nome, ativo: ativoNovo });
+    else store.insert('Profissionais', { id: id, prestador_id: pr.id, nome: nome, ativo: ativoNovo });
+    if (ids) {
+      const meus = servs.map((s) => s.id);
+      store.remove('ProfServ', (x) => x.profissional_id === id && meus.indexOf(x.servico_id) >= 0 && ids.indexOf(x.servico_id) < 0);
+      const ja = store.rows('ProfServ').filter((x) => x.profissional_id === id).map((x) => x.servico_id);
+      ids.filter((sid) => ja.indexOf(sid) < 0).forEach((sid) => store.insert('ProfServ', { profissional_id: id, servico_id: sid, duracao: '' }));
+    }
+    return { id: id, futuros: !ativoNovo ? futurosDoProf(store, pr, ctx, id).length : 0 };
+  };
+
+  ACOES.painelServicos = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const profs = profsDo(store, pr), ps = store.rows('ProfServ');
+    return {
+      servicos: servsDo(store, pr).map((s) => ({
+        id: s.id, nome: s.nome, duracao: numCfg(s.duracao, 30), preparo: numCfg(s.preparo, 0), ativo: ativo(s),
+        profissionais: ps.filter((x) => x.servico_id === s.id && profs.some((p) => p.id === x.profissional_id)).map((x) => ({ id: x.profissional_id, duracao: x.duracao === '' || x.duracao === undefined ? '' : numCfg(x.duracao, '') }))
+      })),
+      profissionais: profs.filter(ativo).map((p) => ({ id: p.id, nome: p.nome }))
+    };
+  };
+
+  ACOES.painelServicoSalvar = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const todos = servsDo(store, pr);
+    const atual = req.id ? todos.find((x) => x.id === req.id) : null;
+    if (req.id && !atual) falha('servico_invalido', 'Serviço não encontrado.');
+    const nome = String(req.nome !== undefined ? req.nome : (atual && atual.nome) || '').trim().slice(0, 60);
+    if (!nome) falha('nome_obrigatorio', 'Informe o nome do serviço.');
+    const duracao = req.duracao !== undefined ? Number(req.duracao) : (atual ? numCfg(atual.duracao, 30) : NaN);
+    if (!durOk(duracao)) falha('duracao_invalida', 'A duração média deve ficar entre 5 e 480 minutos.');
+    const preparo = req.preparo !== undefined && req.preparo !== '' ? Number(req.preparo) : (atual ? numCfg(atual.preparo, 0) : 0);
+    if (!Number.isInteger(preparo) || preparo < 0 || preparo > 120) falha('preparo_invalido', 'O tempo de preparo deve ficar entre 0 e 120 minutos.');
+    const ativoNovo = req.ativo === undefined ? (atual ? ativo(atual) : true) : !!req.ativo;
+    const profs = profsDo(store, pr);
+    const lista = req.profissionais === undefined ? null : (req.profissionais || []);
+    if (lista) {
+      if (lista.some((x) => !profs.some((p) => p.id === x.id))) falha('profissional_invalido', 'Profissional inválido.');
+      if (lista.some((x) => x.duracao !== '' && x.duracao !== undefined && x.duracao !== null && !durOk(x.duracao))) falha('duracao_invalida', 'A duração por profissional deve ficar entre 5 e 480 minutos.');
+    }
+    const id = atual ? atual.id : proximoId(store.rows('Servicos'), 'S');
+    const campos = { nome: nome, duracao: duracao, preparo: preparo, ativo: ativoNovo };
+    if (atual) store.update('Servicos', (x) => x.id === id, campos);
+    else store.insert('Servicos', Object.assign({ id: id, prestador_id: pr.id }, campos));
+    if (lista) {
+      const meus = profs.map((p) => p.id), quer = lista.map((x) => x.id);
+      store.remove('ProfServ', (x) => x.servico_id === id && meus.indexOf(x.profissional_id) >= 0 && quer.indexOf(x.profissional_id) < 0);
+      lista.forEach((x) => {
+        const dur = x.duracao === '' || x.duracao === undefined || x.duracao === null ? '' : Number(x.duracao);
+        if (store.rows('ProfServ').some((r) => r.servico_id === id && r.profissional_id === x.id)) store.update('ProfServ', (r) => r.servico_id === id && r.profissional_id === x.id, { duracao: dur });
+        else store.insert('ProfServ', { profissional_id: x.id, servico_id: id, duracao: dur });
+      });
+    }
+    const futuros = !ativoNovo ? store.rows('Itens').filter((i) => i.prestador_id === pr.id && i.servico_id === id && i.status === 'agendado' && i.data >= ctx.agora().data).length : 0;
+    return { id: id, futuros: futuros };
+  };
+
+  function profAlvo(store, pr, u, req) {
+    const id = u.papel === 'gestor' ? req.profissionalId : u.prof;
+    const p = profsDo(store, pr).find((x) => x.id === id);
+    return p || falha('profissional_invalido', 'Profissional inválido.');
+  }
+
+  ACOES.painelHorarios = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    const profs = profsDo(store, pr).filter(ativo);
+    if (u.papel !== 'gestor' && !u.prof) falha('profissional_invalido', 'Seu acesso não está vinculado a um profissional.');
+    const p = u.papel === 'gestor' && !req.profissionalId ? profs[0] : profAlvo(store, pr, u, req);
+    if (!p) falha('profissional_invalido', 'Cadastre um profissional primeiro.');
+    const dias = [0, 1, 2, 3, 4, 5, 6].map(() => []);
+    store.rows('Disponibilidade').filter((d) => d.profissional_id === p.id).forEach((d) => { dias[Number(d.dia_semana)].push({ inicio: d.inicio, fim: d.fim }); });
+    dias.forEach((l) => l.sort((a, b) => a.inicio.localeCompare(b.inicio)));
+    const hoje = ctx.agora().data;
+    const bloqueios = store.rows('Bloqueios').filter((b) => b.data >= hoje && (b.profissional_id === p.id || b.profissional_id === '*'))
+      .sort((a, b) => (a.data + a.inicio).localeCompare(b.data + b.inicio))
+      .map((b) => ({ data: b.data, inicio: b.inicio, fim: b.fim, motivo: b.motivo, todos: b.profissional_id === '*' }));
+    return { profissional: { id: p.id, nome: p.nome }, profissionais: u.papel === 'gestor' ? profs.map((x) => ({ id: x.id, nome: x.nome })) : [], dias: dias, bloqueios: bloqueios, podeEditar: u.papel === 'gestor' };
+  };
+
+  ACOES.painelHorariosSalvar = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const p = profsDo(store, pr).find((x) => x.id === req.profissionalId) || falha('profissional_invalido', 'Profissional inválido.');
+    const dias = req.dias || {};
+    const novas = [];
+    for (let d = 0; d <= 6; d++) {
+      const faixas = (dias[d] || dias[String(d)] || []).map((f) => ({ inicio: f.inicio, fim: f.fim }));
+      faixas.forEach((f) => {
+        if (!horaOk(f.inicio) || !horaOk(f.fim)) falha('horario_invalido', 'Horário inválido.');
+        if (min(f.fim) <= min(f.inicio)) falha('horario_invalido', 'O fim deve ser depois do início.');
+      });
+      faixas.sort((a, b) => min(a.inicio) - min(b.inicio));
+      for (let k = 1; k < faixas.length; k++) if (min(faixas[k].inicio) < min(faixas[k - 1].fim)) falha('faixas_sobrepostas', 'Há faixas de horário sobrepostas no mesmo dia.');
+      faixas.forEach((f) => novas.push({ profissional_id: p.id, dia_semana: d, inicio: hm(min(f.inicio)), fim: hm(min(f.fim)) }));
+    }
+    store.remove('Disponibilidade', (x) => x.profissional_id === p.id);
+    novas.forEach((x) => store.insert('Disponibilidade', x));
+    const conflitos = futurosDoProf(store, pr, ctx, p.id).filter((i) => !novas.some((x) => x.dia_semana === diaSemana(i.data) && min(i.ini) >= min(x.inicio) && min(i.fim) <= min(x.fim)))
+      .map((i) => ({ protocolo: i.protocolo, data: i.data, ini: i.ini })).slice(0, 10);
+    return { salvo: true, conflitos: conflitos };
+  };
+
+  ACOES.painelBloqueioRemover = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    const ids = profsDo(store, pr).map((p) => p.id);
+    const alvo = u.papel === 'gestor' ? req.profissionalId : u.prof;
+    if (alvo !== '*' && ids.indexOf(alvo) < 0) falha('profissional_invalido', 'Profissional inválido.');
+    const n = store.remove('Bloqueios', (b) => b.profissional_id === alvo && b.data === req.data && b.inicio === req.inicio && b.fim === req.fim);
+    if (!n) falha('bloqueio_inexistente', 'Bloqueio não encontrado.');
+    return { removido: n };
   };
 
   /** Ponto de entrada único da API. */

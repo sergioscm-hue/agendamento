@@ -158,3 +158,9 @@ details.bloq summary { cursor: pointer; font-weight: 700; min-height: 40px; disp
 .form-acesso { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin-top: .7rem; align-items: end; }
 .form-acesso label.chk { display: flex; gap: .5rem; align-items: center; min-height: 44px; }
 .form-acesso label.chk input { width: auto; min-height: 0; }
+.dia-linha { display: grid; grid-template-columns: 5.5rem 1fr; gap: .6rem; align-items: start; border: 1.5px solid var(--line); border-radius: 12px; padding: .6rem .8rem; }
+.dia-linha .faixas { display: grid; gap: .4rem; }
+.dia-linha .faixa { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.dia-linha .faixa input[type=time] { width: auto; min-width: 7.2rem; }
+.prof-dur { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+.prof-dur input[type=number] { width: 9.5rem; }

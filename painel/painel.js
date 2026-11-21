@@ -16,7 +16,8 @@
 
   var st = {
     token: null, prestador: '', usuario: null, aba: 'agenda', data: hojeSP(), ag: null, filtro: '*',
-    cancel: null, aviso: null, login: { usuario: '', pin: '' }, acessos: null, form: null
+    cancel: null, aviso: null, login: { usuario: '', pin: '' }, acessos: null, form: null,
+    hor: null, hprof: '', hdias: null, hsujo: false, hconf: null, folga: null, equipe: null, fprof: null, svc: null, fsvc: null
   };
   try {
     st.token = sessionStorage.getItem(CHAVE);
@@ -53,6 +54,7 @@
   }
   function sair(aviso) {
     st.token = null; st.ag = null; st.usuario = null; st.cancel = null; st.acessos = null; st.form = null; st.aba = 'agenda'; st.filtro = '*';
+    st.hor = null; st.hprof = ''; st.hdias = null; st.hsujo = false; st.hconf = null; st.folga = null; st.equipe = null; st.fprof = null; st.svc = null; st.fsvc = null;
     try { sessionStorage.removeItem(CHAVE); sessionStorage.removeItem(CHAVE + ':u'); } catch (e) { /* ignore */ }
     st.aviso = aviso ? { tipo: 'info', texto: aviso } : null;
     render();
@@ -186,14 +188,27 @@
         } }, 'Bloquear')));
   }
 
+  var ROTULOS = { agenda: 'Agenda', horarios: 'Horários', equipe: 'Equipe', servicos: 'Serviços', acessos: 'Acessos' };
+  function carregarAba() {
+    if (st.aba === 'agenda') carregar();
+    else if (st.aba === 'acessos') carregarAcessos();
+    else if (st.aba === 'horarios') carregarHorarios();
+    else if (st.aba === 'equipe') carregarEquipe();
+    else if (st.aba === 'servicos') carregarServicos();
+  }
+  function irParaAba(id) {
+    st.aba = id; st.aviso = null; st.cancel = null; st.form = null; st.fprof = null; st.fsvc = null; st.folga = null; st.hconf = null;
+    render(); carregarAba();
+  }
   function barra() {
     var quem = st.usuario ? st.usuario.nome + (ehGestor() ? ' (gestor)' : '') : '';
     var topo = h('div', { class: 'barra' }, h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
-      h('button', { class: 'btn mini sec', onclick: function () { if (st.aba === 'agenda') carregar(); else carregarAcessos(); } }, 'Atualizar'),
+      h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
       h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
-    if (!ehGestor()) return [topo];
-    var aba = function (id, rot) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { st.aba = id; st.aviso = null; st.cancel = null; st.form = null; if (id === 'acessos') carregarAcessos(); render(); } }, rot); };
-    return [topo, h('div', { class: 'abas', role: 'navigation' }, aba('agenda', 'Agenda'), aba('acessos', 'Acessos'))];
+    var ids = ehGestor() ? ['agenda', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'horarios'];
+    var rot = function (id) { return !ehGestor() ? (id === 'agenda' ? 'Minha agenda' : 'Meu horário') : ROTULOS[id]; };
+    var abas = ids.map(function (id) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { irParaAba(id); } }, rot(id)); });
+    return [topo, h('div', { class: 'abas', role: 'navigation' }, abas)];
   }
 
   function telaAgenda() {
@@ -276,9 +291,200 @@
         h('p', { class: 'pequeno' }, 'Desativar um acesso bloqueia o login na hora, mas preserva o histórico de atendimentos.'))];
   }
 
+  // ------------------------------------------------------------ comuns dos cadastros
+  var campo = function (rot, el) { return h('div', {}, h('label', {}, rot), el); };
+  var tituloTela = function (t) { return h('h1', { style: 'padding:.6rem 1.25rem 0;margin:0' }, t); };
+  var carregando = function (t) { return [tituloTela(t), avisoEl(), h('p', { class: 'vazio', style: 'padding:0 1.25rem' }, 'Carregando…')]; };
+  var NOMES_DIA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+  var ORDEM_DIA = [1, 2, 3, 4, 5, 6, 0];
+  function falhaAviso(r) { st.aviso = { tipo: 'erro', texto: r.mensagem }; render(); }
+
+  // ------------------------------------------------------------ horários de atendimento
+  function carregarHorarios(profId) {
+    chamar({ action: 'painelHorarios', profissionalId: profId || st.hprof }).then(function (r) {
+      if (!r.ok) { falhaAviso(r); return; }
+      st.hor = r.data; st.hprof = r.data.profissional.id;
+      st.hdias = JSON.parse(JSON.stringify(r.data.dias)); st.hsujo = false; render();
+    });
+  }
+  function trocarProfHorarios(id) {
+    if (st.hsujo && !confirm('Há alterações não salvas. Descartá-las?')) { render(); return; }
+    st.hconf = null; carregarHorarios(id);
+  }
+  function salvarHorarios() {
+    var dias = {};
+    st.hdias.forEach(function (l, d) { dias[d] = l; });
+    chamar({ action: 'painelHorariosSalvar', profissionalId: st.hprof, dias: dias }).then(function (r) {
+      if (!r.ok) { falhaAviso(r); return; }
+      st.aviso = { tipo: 'ok', texto: 'Horários salvos.' }; st.hconf = r.data.conflitos; carregarHorarios();
+    });
+  }
+  function linhaDia(d, edit) {
+    var faixas = st.hdias[d];
+    var corpo = faixas.length ? faixas.map(function (f, k) {
+      if (!edit) return h('div', { class: 'faixa' }, f.inicio + ' – ' + f.fim);
+      return h('div', { class: 'faixa' },
+        h('input', { type: 'time', value: f.inicio, 'aria-label': 'Início', onchange: function (e) { f.inicio = e.target.value; st.hsujo = true; } }), ' às ',
+        h('input', { type: 'time', value: f.fim, 'aria-label': 'Fim', onchange: function (e) { f.fim = e.target.value; st.hsujo = true; } }),
+        h('button', { class: 'btn mini perigo', 'aria-label': 'Remover faixa', onclick: function () { faixas.splice(k, 1); st.hsujo = true; render(); } }, '✕'));
+    }) : h('span', { class: 'pequeno' }, 'Fechado');
+    return h('div', { class: 'dia-linha' }, h('strong', {}, NOMES_DIA[d]), h('div', { class: 'faixas' }, corpo,
+      edit ? h('button', { class: 'btn mini sec', onclick: function () { faixas.push({ inicio: faixas.length ? '13:00' : '09:00', fim: faixas.length ? '18:00' : '12:00' }); st.hsujo = true; render(); } }, '+ faixa') : null));
+  }
+  function salvarFolga() {
+    var f = st.folga;
+    var ini = f.inteiro ? '00:00' : f.ini, fim = f.inteiro ? '23:59' : f.fim;
+    chamar({ action: 'painelBloquear', profissionalId: f.todos ? '*' : st.hprof, data: f.data, ini: ini, fim: fim, motivo: f.motivo }).then(function (r) {
+      if (!r.ok) { falhaAviso(r); return; }
+      st.aviso = { tipo: r.data.conflitos ? 'info' : 'ok', texto: r.data.conflitos ? 'Folga registrada. Atenção: ' + r.data.conflitos + ' agendamento(s) já marcado(s) neste período; cancele ou remaneje com os clientes.' : 'Folga registrada.' };
+      st.folga = null; carregarHorarios();
+    });
+  }
+  function removerFolga(b) {
+    chamar({ action: 'painelBloqueioRemover', profissionalId: b.todos ? '*' : st.hprof, data: b.data, inicio: b.inicio, fim: b.fim }).then(function (r) {
+      if (!r.ok) { falhaAviso(r); return; }
+      st.aviso = { tipo: 'ok', texto: 'Folga removida.' }; carregarHorarios();
+    });
+  }
+  function formFolga() {
+    var f = st.folga;
+    if (!f) return h('button', { class: 'btn sec', onclick: function () { st.folga = { data: Core.somarDias(hojeSP(), 1), inteiro: true, ini: '12:00', fim: '13:00', motivo: '', todos: false }; render(); } }, '+ Adicionar folga ou feriado');
+    return h('div', { class: 'usuario' }, h('strong', {}, 'Nova folga'),
+      h('div', { class: 'form-acesso' },
+        campo('Data', h('input', { type: 'date', value: f.data, onchange: function (e) { f.data = e.target.value; } })),
+        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.inteiro, onchange: function (e) { f.inteiro = e.target.checked; render(); } }), 'Dia inteiro'),
+        f.inteiro ? null : campo('Início', h('input', { type: 'time', value: f.ini, onchange: function (e) { f.ini = e.target.value; } })),
+        f.inteiro ? null : campo('Fim', h('input', { type: 'time', value: f.fim, onchange: function (e) { f.fim = e.target.value; } })),
+        campo('Motivo (opcional)', h('input', { type: 'text', maxlength: '80', value: f.motivo, oninput: function (e) { f.motivo = e.target.value; } })),
+        ehGestor() ? h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.todos, onchange: function (e) { f.todos = e.target.checked; } }), 'Vale para todos os profissionais') : null),
+      h('div', { class: 'acoes' }, h('button', { class: 'btn mini', onclick: salvarFolga }, 'Registrar'),
+        h('button', { class: 'btn mini sec', onclick: function () { st.folga = null; st.aviso = null; render(); } }, 'Cancelar')));
+  }
+  function telaHorarios() {
+    var titulo = ehGestor() ? 'Horários de atendimento' : 'Meu horário';
+    if (!st.hor || !st.hdias) return carregando(titulo);
+    var hr = st.hor, edit = hr.podeEditar;
+    var chips = edit && hr.profissionais.length > 1 ? h('div', { class: 'filtros' }, hr.profissionais.map(function (p) {
+      return h('button', { 'aria-pressed': String(st.hprof === p.id), onclick: function () { trocarProfHorarios(p.id); } }, p.nome);
+    })) : null;
+    var conflitos = st.hconf && st.hconf.length ? h('div', { class: 'msg info', style: 'margin:.8rem 1.25rem' },
+      'Atenção: ' + st.hconf.length + ' agendamento(s) ficaram fora do novo horário: ' + st.hconf.map(function (c) { return Core.dataBR(c.data) + ' ' + c.ini + ' (' + c.protocolo + ')'; }).join('; ') + '. Cancele ou remaneje com os clientes.') : null;
+    return [tituloTela(titulo + (edit ? '' : ' · ' + hr.profissional.nome)), chips, avisoEl(), conflitos,
+      h('div', { class: 'lista-acessos' },
+        ORDEM_DIA.map(function (d) { return linhaDia(d, edit); }),
+        edit ? h('div', { class: 'acoes' }, h('button', { class: 'btn', disabled: !st.hsujo, onclick: salvarHorarios }, st.hsujo ? 'Salvar horários' : 'Sem alterações'),
+          st.hsujo ? h('button', { class: 'btn sec', onclick: function () { carregarHorarios(); } }, 'Descartar') : null) : h('p', { class: 'pequeno' }, 'Os horários são definidos pelo gestor.'),
+        h('h3', { style: 'margin:.8rem 0 0' }, 'Folgas e feriados'),
+        hr.bloqueios.length ? hr.bloqueios.map(function (b) {
+          return h('div', { class: 'usuario' }, h('div', { class: 'topo' }, h('strong', {}, Core.dataBR(b.data) + (b.inicio === '00:00' && b.fim === '23:59' ? ' · dia inteiro' : ' · ' + b.inicio + ' – ' + b.fim)),
+            b.todos ? h('span', { class: 'badge' }, 'todos') : null,
+            (edit || !b.todos) ? h('button', { class: 'btn mini perigo', onclick: function () { removerFolga(b); } }, 'Remover') : null),
+            b.motivo ? h('div', { class: 'meta' }, b.motivo) : null);
+        }) : h('p', { class: 'vazio' }, 'Nenhuma folga futura.'),
+        formFolga())];
+  }
+
+  // ------------------------------------------------------------ equipe (profissionais)
+  function carregarEquipe() {
+    chamar({ action: 'painelEquipe' }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.equipe = r.data; render(); });
+  }
+  function formProf() {
+    var f = st.fprof, eq = st.equipe;
+    return h('div', { class: 'usuario' }, h('strong', {}, f.id ? 'Editar profissional' : 'Novo profissional'),
+      h('div', { class: 'form-acesso' },
+        campo('Nome', h('input', { type: 'text', maxlength: '60', value: f.nome, oninput: function (e) { f.nome = e.target.value; } })),
+        f.id ? h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.ativo, onchange: function (e) { f.ativo = e.target.checked; } }), 'Ativo (aparece para os clientes)') : null),
+      h('p', { class: 'pequeno', style: 'margin:.6rem 0 .2rem' }, 'Serviços que realiza:'),
+      eq.servicos.length ? eq.servicos.map(function (sv) {
+        return h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.servicoIds.indexOf(sv.id) >= 0, onchange: function (e) {
+          var i = f.servicoIds.indexOf(sv.id); if (e.target.checked && i < 0) f.servicoIds.push(sv.id); if (!e.target.checked && i >= 0) f.servicoIds.splice(i, 1); } }), sv.nome);
+      }) : h('p', { class: 'vazio' }, 'Cadastre os serviços na aba Serviços.'),
+      h('div', { class: 'acoes' },
+        h('button', { class: 'btn mini', onclick: function () {
+          chamar({ action: 'painelProfissionalSalvar', id: f.id || undefined, nome: f.nome, ativo: f.ativo, servicoIds: f.servicoIds }).then(function (r) {
+            if (!r.ok) { falhaAviso(r); return; }
+            var novo = !f.id;
+            st.aviso = { tipo: r.data.futuros ? 'info' : 'ok', texto: r.data.futuros ? 'Profissional desativado. Atenção: ' + r.data.futuros + ' agendamento(s) futuro(s) dele continuam marcados; cancele ou remaneje.' : (novo ? 'Profissional cadastrado. Defina os horários dele na aba Horários.' : 'Profissional atualizado.') };
+            st.fprof = null; carregarEquipe();
+          });
+        } }, 'Salvar'),
+        h('button', { class: 'btn mini sec', onclick: function () { st.fprof = null; st.aviso = null; render(); } }, 'Cancelar')));
+  }
+  function telaEquipe() {
+    if (!st.equipe) return carregando('Profissionais');
+    var eq = st.equipe, nomeS = {};
+    eq.servicos.forEach(function (x) { nomeS[x.id] = x.nome; });
+    var itens = eq.profissionais.map(function (p) {
+      if (st.fprof && st.fprof.id === p.id) return formProf();
+      return h('div', { class: 'usuario' + (p.ativo ? '' : ' inativo') },
+        h('div', { class: 'topo' }, h('strong', {}, p.nome), !p.ativo ? h('span', { class: 'badge cancelado' }, 'inativo') : null),
+        h('div', { class: 'meta' }, p.servicoIds.length ? p.servicoIds.map(function (id) { return nomeS[id]; }).filter(Boolean).join(' · ') : 'Nenhum serviço vinculado'),
+        p.acessos.length ? h('div', { class: 'meta' }, 'Acesso ao painel: ' + p.acessos.join(', ')) : null,
+        h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', onclick: function () { st.fprof = { id: p.id, nome: p.nome, ativo: p.ativo, servicoIds: p.servicoIds.slice() }; st.aviso = null; render(); } }, 'Editar'),
+          h('button', { class: 'btn mini sec', onclick: function () { st.hprof = p.id; irParaAba('horarios'); } }, 'Horários')));
+    });
+    return [tituloTela('Profissionais'), avisoEl(), h('div', { class: 'lista-acessos' }, itens,
+      st.fprof && !st.fprof.id ? formProf() : h('button', { class: 'btn sec', onclick: function () { st.fprof = { id: '', nome: '', ativo: true, servicoIds: [] }; st.aviso = null; render(); } }, '+ Novo profissional'),
+      h('p', { class: 'pequeno' }, 'Desativar tira o profissional da lista de novos agendamentos, mas preserva o histórico e os relatórios.'))];
+  }
+
+  // ------------------------------------------------------------ serviços
+  function carregarServicos() {
+    chamar({ action: 'painelServicos' }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.svc = r.data; render(); });
+  }
+  function fmtDur(m) { return m >= 60 ? Math.floor(m / 60) + 'h' + (m % 60 ? ('0' + (m % 60)).slice(-2) : '') : m + ' min'; }
+  function formServico() {
+    var f = st.fsvc, sv = st.svc;
+    return h('div', { class: 'usuario' }, h('strong', {}, f.id ? 'Editar serviço' : 'Novo serviço'),
+      h('div', { class: 'form-acesso' },
+        campo('Nome do serviço', h('input', { type: 'text', maxlength: '60', value: f.nome, oninput: function (e) { f.nome = e.target.value; } })),
+        campo('Duração média (min)', h('input', { type: 'number', min: '5', max: '480', step: '5', inputmode: 'numeric', value: f.duracao, oninput: function (e) { f.duracao = e.target.value; } })),
+        campo('Preparo após o serviço (min)', h('input', { type: 'number', min: '0', max: '120', step: '5', inputmode: 'numeric', value: f.preparo, oninput: function (e) { f.preparo = e.target.value; } })),
+        f.id ? h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.ativo, onchange: function (e) { f.ativo = e.target.checked; } }), 'Ativo (aparece para os clientes)') : null),
+      h('p', { class: 'pequeno', style: 'margin:.6rem 0 .2rem' }, 'Quem realiza (e, se for diferente, o tempo médio de cada um):'),
+      sv.profissionais.map(function (p) {
+        var marc = f.profs[p.id] !== undefined;
+        return h('div', { class: 'prof-dur' },
+          h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: marc, onchange: function (e) { if (e.target.checked) f.profs[p.id] = ''; else delete f.profs[p.id]; render(); } }), p.nome),
+          marc ? h('input', { type: 'number', min: '5', max: '480', step: '5', inputmode: 'numeric', placeholder: 'igual ao médio', 'aria-label': 'Duração de ' + p.nome, value: f.profs[p.id], oninput: function (e) { f.profs[p.id] = e.target.value; } }) : null);
+      }),
+      h('div', { class: 'acoes' },
+        h('button', { class: 'btn mini', onclick: function () {
+          var lista = Object.keys(f.profs).map(function (id) { return { id: id, duracao: f.profs[id] === '' ? '' : Number(f.profs[id]) }; });
+          chamar({ action: 'painelServicoSalvar', id: f.id || undefined, nome: f.nome, duracao: f.duracao === '' ? undefined : Number(f.duracao), preparo: f.preparo === '' ? 0 : Number(f.preparo), ativo: f.ativo, profissionais: lista }).then(function (r) {
+            if (!r.ok) { falhaAviso(r); return; }
+            st.aviso = { tipo: r.data.futuros ? 'info' : 'ok', texto: r.data.futuros ? 'Serviço desativado. Atenção: ' + r.data.futuros + ' agendamento(s) futuro(s) dele continuam marcados.' : (f.id ? 'Serviço atualizado. As mudanças valem para os novos agendamentos.' : 'Serviço cadastrado.') };
+            st.fsvc = null; carregarServicos();
+          });
+        } }, 'Salvar'),
+        h('button', { class: 'btn mini sec', onclick: function () { st.fsvc = null; st.aviso = null; render(); } }, 'Cancelar')));
+  }
+  function telaServicos() {
+    if (!st.svc) return carregando('Serviços');
+    var sv = st.svc, nomeP = {};
+    sv.profissionais.forEach(function (p) { nomeP[p.id] = p.nome; });
+    var itens = sv.servicos.map(function (x) {
+      if (st.fsvc && st.fsvc.id === x.id) return formServico();
+      var profs = x.profissionais.filter(function (p) { return nomeP[p.id]; });
+      return h('div', { class: 'usuario' + (x.ativo ? '' : ' inativo') },
+        h('div', { class: 'topo' }, h('strong', {}, x.nome), !x.ativo ? h('span', { class: 'badge cancelado' }, 'inativo') : null,
+          x.ativo && !profs.length ? h('span', { class: 'badge cancelado' }, 'sem profissional') : null),
+        h('div', { class: 'meta' }, 'aprox. ' + fmtDur(x.duracao) + (x.preparo ? ' · preparo ' + x.preparo + ' min' : '')),
+        h('div', { class: 'meta' }, profs.length ? profs.map(function (p) { return nomeP[p.id] + (p.duracao ? ' (' + fmtDur(p.duracao) + ')' : ''); }).join(' · ') : 'Ninguém realiza este serviço'),
+        h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', onclick: function () {
+          var pf = {}; x.profissionais.forEach(function (p) { if (nomeP[p.id]) pf[p.id] = p.duracao; });
+          st.fsvc = { id: x.id, nome: x.nome, duracao: x.duracao, preparo: x.preparo, ativo: x.ativo, profs: pf }; st.aviso = null; render(); } }, 'Editar')));
+    });
+    return [tituloTela('Serviços'), avisoEl(), h('div', { class: 'lista-acessos' }, itens,
+      st.fsvc && !st.fsvc.id ? formServico() : h('button', { class: 'btn sec', onclick: function () { st.fsvc = { id: '', nome: '', duracao: 30, preparo: 0, ativo: true, profs: {} }; st.aviso = null; render(); } }, '+ Novo serviço'),
+      h('p', { class: 'pequeno' }, 'Os tempos são médios e aparecem para o cliente como "aprox.". Mudanças valem só para novos agendamentos.'))];
+  }
+
   function render() {
     if (!st.token) { raiz.replaceChildren(telaLogin()); return; }
-    var corpo = st.aba === 'acessos' && ehGestor() ? telaAcessos() : telaAgenda();
+    var corpo = !ehGestor() && st.aba !== 'agenda' && st.aba !== 'horarios' ? telaAgenda()
+      : st.aba === 'acessos' && ehGestor() ? telaAcessos() : st.aba === 'horarios' ? telaHorarios()
+      : st.aba === 'equipe' && ehGestor() ? telaEquipe() : st.aba === 'servicos' && ehGestor() ? telaServicos() : telaAgenda();
     raiz.replaceChildren(h('div', { class: 'painel' }, barra(), corpo));
   }
 
