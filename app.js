@@ -369,27 +369,11 @@
       '&dates=' + d + 'T' + t(r.itens[0].ini) + '/' + d + 'T' + t(r.itens[r.itens.length - 1].fim) +
       '&details=' + enc('Protocolo ' + r.protocolo + '\n' + resumoTexto(r)) + '&ctz=America%2FSao_Paulo';
   }
-  function baixarIcs(r) {
-    function utc(data, hhmm) {   // horário de Brasília (UTC-3, sem horário de verão) -> UTC
-      var p = data.split('-').map(Number), q = hhmm.split(':').map(Number);
-      var x = new Date(Date.UTC(p[0], p[1] - 1, p[2], q[0] + 3, q[1]));
-      return x.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-    }
-    var linhas = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Agendamento//PT-BR', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
-      'UID:' + r.protocolo + '@agendamento', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''),
-      'DTSTART:' + utc(r.data, r.itens[0].ini), 'DTEND:' + utc(r.data, r.itens[r.itens.length - 1].fim),
-      'SUMMARY:' + (r.prestador + ' — ' + r.itens.map(function (i) { return i.servicoNome; }).join(' + ')).replace(/[,;]/g, ' '),
-      'DESCRIPTION:' + ('Protocolo ' + r.protocolo + '\\n' + resumoTexto(r).replace(/\n/g, '\\n')).replace(/[,;]/g, ' '),
-      'BEGIN:VALARM', 'TRIGGER:-PT60M', 'ACTION:DISPLAY', 'DESCRIPTION:Lembrete do agendamento', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'];
-    var blob = new Blob([linhas.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
-    var a = h('a', { href: URL.createObjectURL(blob), download: r.protocolo + '.ics' });
-    document.body.append(a); a.click(); a.remove();
-  }
-
   TELAS.confirmacao = function () {
     var r = st.reserva;
     if (!r) return h('div', {}, h('p', { class: 'vazio' }, 'Nenhum agendamento recente.'));
-    var zap = 'https://wa.me/?text=' + enc('Agendamento confirmado — ' + r.prestador + '\nProtocolo: ' + r.protocolo + '\n' + dataLonga(r.data) + '\n' + resumoTexto(r));
+    var meuZap = st.cliente && st.cliente.telefone ? String(st.cliente.telefone).replace(/\D/g, '') : '';
+    var zap = 'https://wa.me/' + meuZap + '?text=' + enc('Agendamento confirmado — ' + r.prestador + '\nProtocolo: ' + r.protocolo + '\n' + dataLonga(r.data) + '\n' + resumoTexto(r));
     return h('div', {},
       h('h1', { class: 'centro' }, 'Agendamento confirmado!'), passos(3),
       h('div', { class: 'ok-icone', 'aria-hidden': 'true' }, '✓'),
@@ -398,8 +382,7 @@
         r.itens.map(function (i) { return h('div', { class: 'item-ag' }, h('div', {}, i.ini + ' – ' + i.fim + '  ' + i.servicoNome), h('div', { class: 'p' }, 'Profissional: ' + i.profissionalNome)); }),
         h('div', { class: 'pequeno', style: 'margin-top:.4rem' }, 'Horários previstos (duração média)')),
       h('a', { class: 'btn', href: linkGoogleAgenda(r), target: '_blank', rel: 'noopener' }, 'Adicionar ao Google Agenda'),
-      h('button', { class: 'btn sec', onclick: function () { baixarIcs(r); } }, 'Baixar arquivo de calendário (.ics)'),
-      h('a', { class: 'btn sec', href: zap, target: '_blank', rel: 'noopener' }, 'Enviar protocolo por WhatsApp'),
+      h('a', { class: 'btn sec', href: zap, target: '_blank', rel: 'noopener' }, 'Enviar protocolo para meu WhatsApp'),
       h('div', { class: 'centro' }, h('button', { class: 'link', onclick: function () { st.minhas = null; ir('meus'); } }, 'Remarcar ou cancelar')),
       h('p', { class: 'pequeno centro' }, 'Você também recebe o protocolo por mensagem.'));
   };
