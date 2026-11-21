@@ -10,6 +10,7 @@
   // instalável: manifesto próprio do estabelecimento (nome, ícone e endereço de abertura), escolhido pelo ?p=
   if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
     var lk = document.createElement('link'); lk.rel = 'manifest'; lk.href = '../p/' + slug + '/painel.webmanifest'; document.head.appendChild(lk);
+    var fv = document.createElement('link'); fv.rel = 'icon'; fv.href = '../p/' + slug + '/icon-192.png'; document.head.appendChild(fv);
     var ic = document.createElement('link'); ic.rel = 'apple-touch-icon'; ic.href = '../p/' + slug + '/painel-192.png'; document.head.appendChild(ic);
     var tc = document.createElement('meta'); tc.name = 'theme-color'; tc.content = '#2b2f36'; document.head.appendChild(tc);
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('../sw.js').catch(function () { /* ignore */ });
@@ -73,11 +74,19 @@
 
   // ------------------------------------------------------------ login
   // logo e nome do estabelecimento acima do título (dados públicos, vindos da configuração do app)
+  // logo do estabelecimento (a da planilha ou o arquivo p/<slug>/logo.png); sem nenhuma, a inicial do nome
+  function logoPainel(estilo) {
+    var m = st.marca || {}, nome = m.nome || st.prestador || '?', el = h('div', { class: 'logo', style: estilo || '' });
+    var img = h('img', { src: m.logo || ('../p/' + slug + '/logo.png'), alt: '' });
+    img.onerror = function () { el.replaceChildren(document.createTextNode(nome[0])); };
+    el.appendChild(img);
+    return el;
+  }
   function marcaLogin() {
     var m = st.marca;
     if (!m) return null;
     return h('div', { class: 'centro', style: 'margin-bottom:.6rem' },
-      h('div', { class: 'logo', style: 'width:84px;height:84px;margin:.2rem auto;font-size:1.6rem;border-radius:18px' }, m.logo ? h('img', { src: m.logo, alt: '' }) : (m.nome || '?')[0]),
+      logoPainel('width:84px;height:84px;margin:.2rem auto;font-size:1.6rem;border-radius:18px'),
       h('div', { style: 'font-size:1.25rem;font-weight:700' }, m.nome));
   }
   function telaLogin() {
@@ -233,10 +242,11 @@
   }
   function barra() {
     var quem = st.usuario ? st.usuario.nome + (ehGestor() ? ' (gestor)' : '') : '';
-    var topo = h('div', { class: 'barra' }, h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
-      h('button', { class: 'btn mini sec', 'aria-label': 'Cor do app', onclick: function () { st.temaAberto = !st.temaAberto; render(); } }, '🎨'),
-      h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
-      h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
+    var topo = h('div', { class: 'barra' }, logoPainel('flex:none'), h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
+      h('div', { class: 'barra-acoes' },
+        h('button', { class: 'btn mini sec', 'aria-label': 'Cor do app', onclick: function () { st.temaAberto = !st.temaAberto; render(); } }, '🎨'),
+        h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
+        h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair')));
     var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
     var rot = function (id) { return !ehGestor() ? ({ agenda: 'Agenda', relatorios: 'Resumo', horarios: 'Horário' })[id] : ROTULOS[id]; };
     if (ehGestor()) {

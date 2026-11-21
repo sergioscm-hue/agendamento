@@ -167,9 +167,19 @@
       item('servicos', 'Início', 'servicos'), item('meus', 'Meus agend.', 'meus'), item('perfil', 'Perfil', 'perfil'));
   }
 
+  // logo do estabelecimento: a informada na planilha ou, se não houver, o arquivo p/<slug>/logo.png; sem nenhum, a inicial do nome
+  function logoEl(estilo) {
+    var p = st.cfg.prestador, inicial = (p.nome || '?')[0];
+    var el = h('div', { class: 'logo', style: estilo || '' });
+    var img = h('img', { src: p.logo || (base + 'p/' + slug + '/logo.png'), alt: '' });
+    img.onerror = function () { el.replaceChildren(document.createTextNode(inicial)); };
+    el.appendChild(img);
+    return el;
+  }
+
   function casca(conteudo) {
     var p = st.cfg.prestador;
-    var logo = h('div', { class: 'logo' }, p.logo ? h('img', { src: p.logo, alt: '' }) : (p.nome || '?')[0]);
+    var logo = logoEl('');
     var banner = null;
     if (st.instalar && !st.instalarOculto && st.tela === 'servicos') {
       banner = h('div', { class: 'faixa' }, h('span', {}, 'Instale o app no seu celular para agendar mais rápido.'),
@@ -214,7 +224,7 @@
     return h('div', { class: 'promo', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Promoção', style: 'background:' + fundo + ';color:' + letra },
       h('button', { class: 'promo-x', type: 'button', 'aria-label': 'Fechar', style: 'color:' + letra, onclick: fecharPromo }, '✕'),
       h('div', { class: 'promo-marca' },
-        h('div', { class: 'logo', style: 'width:84px;height:84px;margin:0 auto;font-size:1.6rem;border-radius:18px' }, st.cfg.prestador.logo ? h('img', { src: st.cfg.prestador.logo, alt: '' }) : (st.cfg.prestador.nome || '?')[0]),
+        logoEl('width:84px;height:84px;margin:0 auto;font-size:1.6rem;border-radius:18px'),
         h('div', { class: 'promo-nome' }, st.cfg.prestador.nome)),
       h('div', { class: 'promo-corpo' }, h('p', { class: 'promo-texto' }, pm.texto), botao));
   }
@@ -270,7 +280,7 @@
     }
 
     return h('div', {},
-      h('div', { class: 'centro' }, h('div', { class: 'logo', style: 'width:84px;height:84px;margin:.4rem auto;font-size:1.6rem;border-radius:18px' }, st.cfg.prestador.logo ? h('img', { src: st.cfg.prestador.logo, alt: '' }) : st.cfg.prestador.nome[0])),
+      h('div', { class: 'centro' }, logoEl('width:84px;height:84px;margin:.4rem auto;font-size:1.6rem;border-radius:18px')),
       h('h1', { class: 'centro' }, 'Bem-vindo(a)'),
       h('p', { class: 'sub centro' }, 'Cadastre-se uma vez; depois o app reconhece você.'),
       msg,
