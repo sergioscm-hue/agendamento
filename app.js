@@ -124,7 +124,29 @@
   }
 
   var TELAS = {};
-  function render() { casca(TELAS[st.tela]()); }
+  function render() { if (st.tela === 'promo') raiz.replaceChildren(telaPromo()); else casca(TELAS[st.tela]()); }
+
+  // ---------------------------------------------------------------- tela promocional (opcional, definida pelo gestor)
+  function hojeLocal() { return new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 10); }
+  function promoJaVista(pm) { try { return localStorage.getItem('agenda:promo:' + slug) === pm.id + '|' + hojeLocal(); } catch (e) { return false; } }
+  function fecharPromo() {
+    try { localStorage.setItem('agenda:promo:' + slug, st.promo.id + '|' + hojeLocal()); } catch (e) { /* ignore */ }
+    document.removeEventListener('keydown', teclaPromo);
+    var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', st.cfg.prestador.cor || '#2b2f36');
+    var destino = st.depoisPromo || 'servicos'; st.promo = null;
+    ir(destino);
+  }
+  function teclaPromo(e) { if (e.key === 'Escape') fecharPromo(); }
+  function telaPromo() {
+    var pm = st.promo, fundo = /^#[0-9a-f]{6}$/i.test(pm.cor) ? pm.cor : '#2b2f36', letra = corTexto(fundo);
+    var botao = h('button', { class: 'promo-ok', type: 'button', style: 'background:' + letra + ';color:' + fundo, onclick: fecharPromo }, 'Continuar');
+    document.addEventListener('keydown', teclaPromo);
+    var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', fundo);
+    setTimeout(function () { botao.focus(); }, 0);
+    return h('div', { class: 'promo', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Promoção', style: 'background:' + fundo + ';color:' + letra },
+      h('button', { class: 'promo-x', type: 'button', 'aria-label': 'Fechar', style: 'color:' + letra, onclick: fecharPromo }, '✕'),
+      h('div', { class: 'promo-corpo' }, h('p', { class: 'promo-texto' }, pm.texto), botao));
+  }
 
   // ---------------------------------------------------------------- tela 1: acesso
   TELAS.acesso = function () {
@@ -438,7 +460,10 @@
       var meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.setAttribute('content', cor);
       document.title = r.data.prestador.nome + ' — Agendamento';
       var s = lerSessao();
-      if (s && s.token) { st.token = s.token; st.cliente = s.cliente; ir('servicos'); } else ir('acesso');
+      var destino = s && s.token ? 'servicos' : 'acesso';
+      if (s && s.token) { st.token = s.token; st.cliente = s.cliente; }
+      var pm = r.data.promocao;
+      if (pm && !promoJaVista(pm)) { st.promo = pm; st.depoisPromo = destino; ir('promo'); } else ir(destino);
     });
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register(base + 'sw.js').catch(function () { /* ignore */ });
   }

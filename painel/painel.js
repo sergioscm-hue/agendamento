@@ -24,7 +24,7 @@
   var st = {
     token: null, prestador: '', usuario: null, aba: 'agenda', data: hojeSP(), ag: null, filtro: '*',
     cancel: null, aviso: null, login: { usuario: '', pin: '' }, acessos: null, form: null,
-    rel: null, relProfs: null, rper: 'mes', rde: '', rate: '', rprof: '', cli: null, cbusca: '', chist: null, hor: null, hprof: '', hdias: null, hsujo: false, hconf: null, folga: null, equipe: null, fprof: null, svc: null, fsvc: null
+    promos: null, fpromo: null, rel: null, relProfs: null, rper: 'mes', rde: '', rate: '', rprof: '', cli: null, cbusca: '', chist: null, hor: null, hprof: '', hdias: null, hsujo: false, hconf: null, folga: null, equipe: null, fprof: null, svc: null, fsvc: null
   };
   try {
     st.token = sessionStorage.getItem(CHAVE);
@@ -61,6 +61,7 @@
   }
   function sair(aviso) {
     st.token = null; st.ag = null; st.usuario = null; st.cancel = null; st.acessos = null; st.form = null; st.aba = 'agenda'; st.filtro = '*';
+    st.promos = null; st.fpromo = null;
     st.rel = null; st.rper = 'mes'; st.rde = ''; st.rate = ''; st.rprof = ''; st.cli = null; st.cbusca = ''; st.chist = null;
     st.hor = null; st.hprof = ''; st.hdias = null; st.hsujo = false; st.hconf = null; st.folga = null; st.equipe = null; st.fprof = null; st.svc = null; st.fsvc = null;
     try { sessionStorage.removeItem(CHAVE); sessionStorage.removeItem(CHAVE + ':u'); } catch (e) { /* ignore */ }
@@ -196,7 +197,7 @@
         } }, 'Bloquear')));
   }
 
-  var ROTULOS = { agenda: 'Agenda', relatorios: 'Relatórios', clientes: 'Clientes', horarios: 'Horários', equipe: 'Equipe', servicos: 'Serviços', acessos: 'Acessos' };
+  var ROTULOS = { agenda: 'Agenda', relatorios: 'Relatórios', clientes: 'Clientes', promocoes: 'Promoções', horarios: 'Horários', equipe: 'Equipe', servicos: 'Serviços', acessos: 'Acessos' };
   function carregarAba() {
     if (st.aba === 'agenda') carregar();
     else if (st.aba === 'acessos') carregarAcessos();
@@ -205,9 +206,10 @@
     else if (st.aba === 'servicos') carregarServicos();
     else if (st.aba === 'relatorios') carregarRelatorio();
     else if (st.aba === 'clientes') carregarClientes();
+    else if (st.aba === 'promocoes') carregarPromos();
   }
   function irParaAba(id) {
-    st.aba = id; st.aviso = null; st.cancel = null; st.form = null; st.fprof = null; st.fsvc = null; st.folga = null; st.hconf = null;
+    st.aba = id; st.aviso = null; st.cancel = null; st.form = null; st.fprof = null; st.fsvc = null; st.folga = null; st.hconf = null; st.fpromo = null;
     render(); carregarAba();
   }
   function barra() {
@@ -215,7 +217,7 @@
     var topo = h('div', { class: 'barra' }, h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
       h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
       h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair'));
-    var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
+    var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
     var rot = function (id) { return !ehGestor() ? ({ agenda: 'Minha agenda', relatorios: 'Meu resumo', horarios: 'Meu horário' })[id] : ROTULOS[id]; };
     var abas = ids.map(function (id) { return h('button', { 'aria-current': st.aba === id ? 'page' : false, onclick: function () { irParaAba(id); } }, rot(id)); });
     return [topo, h('div', { class: 'abas', role: 'navigation' }, abas)];
@@ -603,10 +605,68 @@
       h('p', { class: 'pequeno' }, 'Dados pessoais visíveis apenas ao gestor. Use-os somente para o atendimento e para estatísticas do estabelecimento.'))];
   }
 
+  // ------------------------------------------------------------ promoções (tela inicial do cliente)
+  var CORES_PROMO = ['#c2185b', '#e65100', '#2e7d32', '#1565c0', '#6a1b9a', '#2b2f36', '#f9d949', '#ffffff'];
+  function corLetra(hex) {
+    var n = parseInt(String(hex).slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#1b1d21' : '#ffffff';
+  }
+  function carregarPromos() {
+    chamar({ action: 'painelPromocoes' }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.promos = r.data; render(); });
+  }
+  function novaPromo() { var h0 = hojeSP(); return { id: '', texto: '', cor: '#c2185b', de: h0, ate: Core.somarDias(h0, 7), ativo: true }; }
+  function formPromo() {
+    var f = st.fpromo, previa = h('div', { class: 'promo-previa' }, h('p', {}, ''));
+    var atualizar = function () { previa.style.background = f.cor; previa.style.color = corLetra(f.cor); previa.firstChild.textContent = f.texto || 'Prévia do texto da promoção'; };
+    var texto = h('textarea', { rows: '4', maxlength: '300', placeholder: 'Ex.: Dia das mães: Corte de Cabelo + Unha com 50% de desconto', oninput: function (e) { f.texto = e.target.value; contador.textContent = f.texto.length + '/300'; atualizar(); } });
+    texto.value = f.texto;
+    var contador = h('span', { class: 'pequeno' }, f.texto.length + '/300');
+    var seletor = h('input', { type: 'color', value: f.cor, 'aria-label': 'Cor de fundo', oninput: function (e) { f.cor = e.target.value; atualizar(); } });
+    var amostras = h('div', { class: 'amostras' }, CORES_PROMO.map(function (c) {
+      return h('button', { type: 'button', class: 'amostra', style: 'background:' + c, 'aria-label': 'Usar a cor ' + c, onclick: function () { f.cor = c; seletor.value = c; atualizar(); } });
+    }));
+    atualizar();
+    return h('div', { class: 'usuario' }, h('strong', {}, f.id ? 'Editar promoção' : 'Nova promoção'),
+      h('div', { class: 'form-acesso' },
+        campo('Texto (aparece em negrito, centralizado)', texto), contador,
+        campo('Cor de fundo', h('div', {}, seletor, amostras)),
+        campo('Mostrar a partir de', h('input', { type: 'date', value: f.de, onchange: function (e) { f.de = e.target.value; } })),
+        campo('Mostrar até (inclusive)', h('input', { type: 'date', value: f.ate, onchange: function (e) { f.ate = e.target.value; } })),
+        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.ativo, onchange: function (e) { f.ativo = e.target.checked; } }), 'Ativa')),
+      h('p', { class: 'pequeno', style: 'margin:.6rem 0 .2rem' }, 'Prévia:'), previa,
+      h('div', { class: 'acoes' },
+        h('button', { class: 'btn mini', onclick: function () {
+          chamar({ action: 'painelPromocaoSalvar', id: f.id || undefined, texto: f.texto, cor: f.cor, de: f.de, ate: f.ate, ativo: f.ativo }).then(function (r) {
+            if (!r.ok) { falhaAviso(r); return; }
+            st.aviso = { tipo: 'ok', texto: 'Promoção salva.' }; st.fpromo = null; carregarPromos();
+          });
+        } }, 'Salvar'),
+        h('button', { class: 'btn mini sec', onclick: function () { st.fpromo = null; st.aviso = null; render(); } }, 'Cancelar')));
+  }
+  function telaPromos() {
+    if (!st.promos) return carregando('Promoções');
+    var ROT = { vigente: 'no ar agora', agendada: 'agendada', encerrada: 'encerrada', desativada: 'desativada' };
+    var itens = st.promos.promocoes.map(function (x) {
+      if (st.fpromo && st.fpromo.id === x.id) return formPromo();
+      return h('div', { class: 'usuario' + (x.situacao === 'vigente' || x.situacao === 'agendada' ? '' : ' inativo') },
+        h('div', { class: 'topo' }, h('strong', {}, Core.dataBR(x.de) + ' a ' + Core.dataBR(x.ate)), h('span', { class: 'badge' + (x.situacao === 'vigente' ? '' : ' cancelado') }, ROT[x.situacao])),
+        h('div', { class: 'promo-previa pequena', style: 'background:' + x.cor + ';color:' + corLetra(x.cor) }, h('p', {}, x.texto)),
+        h('div', { class: 'acoes' },
+          h('button', { class: 'btn mini sec', onclick: function () { st.fpromo = { id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, ativo: x.ativo }; st.aviso = null; render(); } }, 'Editar'),
+          h('button', { class: 'btn mini perigo', onclick: function () {
+            if (!confirm('Excluir esta promoção?')) return;
+            chamar({ action: 'painelPromocaoRemover', id: x.id }).then(function (r) { if (!r.ok) { falhaAviso(r); return; } st.aviso = { tipo: 'ok', texto: 'Promoção excluída.' }; carregarPromos(); });
+          } }, 'Excluir')));
+    });
+    return [tituloTela('Promoções'), avisoEl(), h('div', { class: 'lista-acessos' }, itens.length ? itens : h('p', { class: 'vazio' }, 'Nenhuma promoção cadastrada.'),
+      st.fpromo && !st.fpromo.id ? formPromo() : h('button', { class: 'btn sec', onclick: function () { st.fpromo = novaPromo(); st.aviso = null; render(); } }, '+ Nova promoção'),
+      h('p', { class: 'pequeno' }, 'A tela aparece ao cliente quando ele abre o app, uma vez por dia em cada aparelho, e some sozinha depois da data final. Se houver mais de uma no ar, aparece a que começou por último. É só texto informativo: não altera valores nem aplica desconto no agendamento.'))];
+  }
+
   function render() {
     if (!st.token) { raiz.replaceChildren(telaLogin()); return; }
     var corpo = !ehGestor() && st.aba !== 'agenda' && st.aba !== 'horarios' && st.aba !== 'relatorios' ? telaAgenda()
-      : st.aba === 'relatorios' ? telaRelatorios() : st.aba === 'clientes' && ehGestor() ? telaClientes()
+      : st.aba === 'promocoes' && ehGestor() ? telaPromos() : st.aba === 'relatorios' ? telaRelatorios() : st.aba === 'clientes' && ehGestor() ? telaClientes()
       : st.aba === 'acessos' && ehGestor() ? telaAcessos() : st.aba === 'horarios' ? telaHorarios()
       : st.aba === 'equipe' && ehGestor() ? telaEquipe() : st.aba === 'servicos' && ehGestor() ? telaServicos() : telaAgenda();
     raiz.replaceChildren(h('div', { class: 'painel' }, barra(), corpo));

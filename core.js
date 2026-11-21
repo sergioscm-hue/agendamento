@@ -30,13 +30,14 @@
     Mensagens: ['quando', 'telefone', 'canal', 'texto', 'status'],
     Config: ['chave', 'valor'],
     Usuarios: ['id', 'prestador_id', 'usuario', 'nome', 'papel', 'profissional_id', 'pode_cancelar', 'pin_hash', 'tentativas', 'bloqueado_ate', 'ativo'],
-    Modelos: ['id', 'prestador_id', 'texto', 'ativo']
+    Modelos: ['id', 'prestador_id', 'texto', 'ativo'],
+    Promocoes: ['id', 'prestador_id', 'texto', 'cor', 'de', 'ate', 'ativo']
   };
   // tipos de coluna (usado pelo leitor da planilha para evitar conversões automáticas do Sheets)
   const COL_HORA = ['inicio', 'fim', 'ini', 'ocup_fim'];
-  const COL_DATA = ['data'];
+  const COL_DATA = ['data', 'de', 'ate'];
   const COL_NUM = ['folga_max', 'passo', 'antecedencia_min', 'dias_max', 'cancel_antecedencia_min', 'duracao', 'preparo', 'dia_semana', 'tentativas', 'bloqueado_ate'];
-  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo'];
+  const COL_TEXTO = ['telefone', 'id', 'slug', 'protocolo', 'cliente_id', 'prestador_id', 'profissional_id', 'servico_id', 'pin_hash', 'codigo_hash', 'valor', 'criado_em', 'cancelado_em', 'consent_em', 'desde', 'expira_em', 'quando', 'usuario', 'cancelado_motivo', 'texto', 'cor'];
 
   // ---------- utilidades ----------
   class ErroApi extends Error {
@@ -345,7 +346,13 @@
     return { token: emitirToken(ctx, 'cli', pr, { cid: cli.id }, 24 * 90), cliente: { id: cli.id, nome: cli.nome, telefone: cli.telefone } };
   }
 
-  ACOES.config = (req, store) => {
+  const promocaoVigente = (store, pr, hoje) => {
+    const p = store.rows('Promocoes').filter((x) => x.prestador_id === pr.id && ativo(x) && x.de <= hoje && hoje <= x.ate)
+      .sort((a, b) => b.de.localeCompare(a.de) || Number(String(b.id).replace(/\D/g, '')) - Number(String(a.id).replace(/\D/g, '')))[0];
+    return p ? { id: p.id, texto: p.texto, cor: p.cor } : null;
+  };
+
+  ACOES.config = (req, store, ctx) => {
     const pr = prestadorPorSlug(store, req.slug);
     const cfg = parametros(pr);
     const profs = store.rows('Profissionais').filter((p) => p.prestador_id === pr.id && ativo(p));
@@ -354,6 +361,7 @@
     const disp = store.rows('Disponibilidade');
     return {
       prestador: { slug: pr.slug, nome: pr.nome, cor: pr.cor, logo: pr.logo, ...cfg },
+      promocao: promocaoVigente(store, pr, ctx.agora().data),
       profissionais: profs.map((p) => ({ id: p.id, nome: p.nome, dias: Array.from(new Set(disp.filter((d) => d.profissional_id === p.id).map((d) => Number(d.dia_semana)))) })),
       servicos: servs.map((s) => ({
         id: s.id, nome: s.nome, duracao: numCfg(s.duracao, 30), preparo: numCfg(s.preparo, 0),
@@ -785,6 +793,41 @@
         data: i.data, ini: i.ini, protocolo: i.protocolo, servico: servs[i.servico_id] || '', profissional: profs[i.profissional_id] || '', status: i.status, motivo: i.cancelado_motivo || ''
       }))
     };
+  };
+
+  // --- promoções (tela inicial do cliente; somente gestor) ---
+  const COR_HEX = /^#[0-9a-fA-F]{6}$/;
+  const promoPublica = (x, hoje) => ({ id: x.id, texto: x.texto, cor: x.cor, de: x.de, ate: x.ate, ativo: ativo(x), situacao: !ativo(x) ? 'desativada' : x.ate < hoje ? 'encerrada' : x.de > hoje ? 'agendada' : 'vigente' });
+
+  ACOES.painelPromocoes = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const hoje = ctx.agora().data;
+    return { promocoes: store.rows('Promocoes').filter((x) => x.prestador_id === pr.id).sort((a, b) => b.de.localeCompare(a.de)).map((x) => promoPublica(x, hoje)) };
+  };
+
+  ACOES.painelPromocaoSalvar = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    const texto = String(req.texto || '').trim();
+    if (!texto || texto.length > 300) falha('texto_invalido', 'Digite o texto da promoção (até 300 caracteres).');
+    if (!COR_HEX.test(String(req.cor || ''))) falha('cor_invalida', 'Escolha uma cor de fundo válida.');
+    if (!dataValida(req.de) || !dataValida(req.ate)) falha('data_invalida', 'Informe as datas de início e fim.');
+    if (req.ate < req.de) falha('periodo_invalido', 'A data final deve ser igual ou posterior à inicial.');
+    const atual = req.id ? store.rows('Promocoes').find((x) => x.id === req.id && x.prestador_id === pr.id) : null;
+    if (req.id && !atual) falha('promocao_inexistente', 'Promoção não encontrada.');
+    const dados = { texto: texto, cor: String(req.cor).toLowerCase(), de: req.de, ate: req.ate, ativo: req.ativo !== false };
+    const id = atual ? atual.id : proximoId(store.rows('Promocoes'), 'M');
+    if (atual) store.update('Promocoes', (x) => x.id === id, dados);
+    else store.insert('Promocoes', Object.assign({ id: id, prestador_id: pr.id }, dados));
+    return { id: id };
+  };
+
+  ACOES.painelPromocaoRemover = (req, store, ctx) => {
+    const { pr, u } = autenticarPainel(req, store, ctx);
+    exigirGestor(u);
+    if (!store.remove('Promocoes', (x) => x.id === req.id && x.prestador_id === pr.id)) falha('promocao_inexistente', 'Promoção não encontrada.');
+    return { removida: true };
   };
 
   ACOES.painelBloquear = (req, store, ctx) => {

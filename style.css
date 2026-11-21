@@ -176,3 +176,16 @@ details.bloq summary { cursor: pointer; font-weight: 700; min-height: 40px; disp
 .bl-valor { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .historico { border-top: 1px dashed var(--line); margin-top: .5rem; padding-top: .4rem; display: grid; gap: .25rem; }
 @media (min-width: 640px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+
+.promo { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; overflow-y: auto; }
+.promo-x { align-self: flex-end; margin: .8rem; width: 44px; height: 44px; border: 0; background: none; font-size: 1.4rem; cursor: pointer; }
+.promo-corpo { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2rem; padding: 1rem 1.6rem 3rem; max-width: 34rem; margin: 0 auto; width: 100%; box-sizing: border-box; text-align: center; }
+.promo-texto { font-weight: 700; font-size: clamp(1.5rem, 6vw, 2.2rem); line-height: 1.25; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.promo-ok { min-height: 48px; min-width: 11rem; padding: 0 1.6rem; border: 0; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.painel .abas { overflow-x: auto; scrollbar-width: thin; }
+.painel .abas button { white-space: nowrap; }
+.promo-previa { border: 1.5px solid var(--line); border-radius: 12px; padding: 1.4rem 1rem; text-align: center; font-weight: 700; font-size: 1.15rem; }
+.promo-previa p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.promo-previa.pequena { padding: .7rem .8rem; font-size: .95rem; }
+.amostras { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .5rem; }
+.amostra { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; }
