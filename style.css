@@ -232,3 +232,7 @@ button.faixa-promo { display: block; width: 100%; border: 0; font: inherit; font
 .dialogo-texto { margin: 0 0 1rem; white-space: pre-line; line-height: 1.45; }
 .dialogo-acoes { display: flex; gap: .6rem; justify-content: flex-end; }
 .dialogo-acoes .btn { width: auto; min-width: 96px; }
+
+/* tela de promoção: logo e nome do estabelecimento no topo, centralizados */
+.promo-marca { text-align: center; padding: 0 1.6rem; margin-top: -2.6rem; }
+.promo-nome { margin-top: .5rem; font-size: 1.25rem; font-weight: 700; }

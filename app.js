@@ -213,6 +213,9 @@
     setTimeout(function () { botao.focus(); }, 0);
     return h('div', { class: 'promo', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Promoção', style: 'background:' + fundo + ';color:' + letra },
       h('button', { class: 'promo-x', type: 'button', 'aria-label': 'Fechar', style: 'color:' + letra, onclick: fecharPromo }, '✕'),
+      h('div', { class: 'promo-marca' },
+        h('div', { class: 'logo', style: 'width:84px;height:84px;margin:0 auto;font-size:1.6rem;border-radius:18px' }, st.cfg.prestador.logo ? h('img', { src: st.cfg.prestador.logo, alt: '' }) : (st.cfg.prestador.nome || '?')[0]),
+        h('div', { class: 'promo-nome' }, st.cfg.prestador.nome)),
       h('div', { class: 'promo-corpo' }, h('p', { class: 'promo-texto' }, pm.texto), botao));
   }
 
