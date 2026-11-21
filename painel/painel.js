@@ -244,8 +244,8 @@
     var quem = st.usuario ? st.usuario.nome + (ehGestor() ? ' (gestor)' : '') : '';
     var topo = h('div', { class: 'barra' }, logoPainel('flex:none'), h('div', { class: 'nome' }, st.prestador || 'Painel', quem ? h('div', { class: 'pequeno' }, quem) : null),
       h('div', { class: 'barra-acoes' },
-        h('button', { class: 'btn mini sec', 'aria-label': 'Cor do app', onclick: function () { st.temaAberto = !st.temaAberto; render(); } }, '🎨'),
         h('button', { class: 'btn mini sec', onclick: carregarAba }, 'Atualizar'),
+        h('button', { class: 'btn mini sec', 'aria-label': 'Cor do app', onclick: function () { st.temaAberto = !st.temaAberto; render(); } }, '🎨'),
         h('button', { class: 'btn mini sec', onclick: function () { sair(); } }, 'Sair')));
     var ids = ehGestor() ? ['agenda', 'relatorios', 'clientes', 'promocoes', 'horarios', 'equipe', 'servicos', 'acessos'] : ['agenda', 'relatorios', 'horarios'];
     var rot = function (id) { return !ehGestor() ? ({ agenda: 'Agenda', relatorios: 'Resumo', horarios: 'Horário' })[id] : ROTULOS[id]; };
@@ -487,7 +487,7 @@
         h('div', { class: 'topo' }, h('strong', {}, p.nome), !p.ativo ? h('span', { class: 'badge cancelado' }, 'inativo') : null),
         h('div', { class: 'meta' }, p.servicoIds.length ? p.servicoIds.map(function (id) { return nomeS[id]; }).filter(Boolean).join(' · ') : 'Nenhum serviço vinculado'),
         p.acessos.length ? h('div', { class: 'meta' }, 'Acesso ao painel: ' + p.acessos.join(', ')) : null,
-        h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', onclick: function () { st.fprof = { id: p.id, nome: p.nome, ativo: p.ativo, servicoIds: p.servicoIds.slice() }; st.aviso = null; render(); } }, 'Editar'),
+        h('div', { class: 'acoes' }, h('button', { class: 'btn mini sec', onclick: function () { st.fprof = { id: p.id, nome: p.nome, ativo: p.ativo, servicoIds: p.servicoIds.slice() }; st.aviso = null; render(); } }, 'Especialidades'),
           h('button', { class: 'btn mini sec', onclick: function () { st.hprof = p.id; irParaAba('horarios'); } }, 'Horários'),
           h('button', { class: 'btn mini perigo', onclick: function () { excluirProf(p); } }, 'Excluir')));
     });

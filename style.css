@@ -114,7 +114,7 @@ nav.base button.on i { background: var(--accent); border-color: var(--accent); }
 .painel { max-width: 960px; margin: 0 auto; background: #fff; min-height: 100vh; }
 .painel .barra { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; padding: .8rem 1.25rem; border-bottom: 1px solid var(--line); }
 .painel .barra .nome { font-weight: 700; flex: 1 1 8.5rem; min-width: 8.5rem; }
-.painel .barra-acoes { flex: 1 0 100%; display: flex; gap: .5rem; justify-content: flex-end; }
+.painel .barra-acoes { flex: 1 0 100%; display: flex; gap: .5rem; justify-content: flex-start; }
 .painel .data-nav { display: flex; align-items: center; gap: .4rem; padding: .8rem 1.25rem 0; }
 .painel .data-nav input { width: auto; }
 .painel .data-nav button { min-height: 44px; min-width: 44px; border: 1.5px solid var(--line); background: #fff; border-radius: 10px; font-size: 1.1rem; cursor: pointer; }
