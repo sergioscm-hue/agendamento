@@ -601,6 +601,17 @@
       render();
     });
   }
+  // exclusão da conta e dos dados pessoais (cancela reservas futuras; apaga cadastro, preferências e aparelhos)
+  function excluirConta() {
+    var tok = pushToken();
+    return chamar({ action: 'excluirConta', confirmar: true }).then(function (r) {
+      if (!r.ok) { setAviso('erro', r.mensagem || 'Não foi possível excluir agora. Tente novamente.'); render(); return; }
+      try { localStorage.removeItem(CHAVE_PUSH); } catch (e) { /* ignore */ }
+      if (tok) firebaseMessaging().then(function (m) { return m.deleteToken(); }).catch(function () { /* ignore */ });
+      limparSessao(); st.sel = []; st.minhas = null; st.ofertas = null;
+      st.form = { nome: '', telefone: '', aceite: false, codigo: '' }; setAviso('ok', 'Sua conta e seus dados foram excluídos.'); ir('acesso');
+    });
+  }
   function blocoOfertas() {
     var o = st.ofertas;
     if (!o) { carregarOfertas(); return null; }
@@ -636,6 +647,9 @@
       h('a', { class: 'btn sec', href: base + 'politica.html', target: '_blank', rel: 'noopener' }, 'Política de Privacidade'),
       h('a', { class: 'btn sec', href: base + 'termos.html', target: '_blank', rel: 'noopener' }, 'Termos de Uso'),
       h('button', { class: 'btn sec', onclick: function () { limparSessao(); st.sel = []; st.minhas = null; st.ofertas = null; setAviso(); ir('acesso'); } }, 'Sair'),
+      h('button', { class: 'btn perigo', onclick: function () {
+        Dialogo.confirmar('Excluir sua conta e apagar seus dados? Suas reservas futuras serão canceladas e esta ação não pode ser desfeita.', 'Excluir tudo', true).then(function (ok) { if (ok) excluirConta(); });
+      } }, 'Excluir minha conta e apagar meus dados'),
       Api.demo ? h('button', { class: 'btn perigo', onclick: function () { Api.reiniciarDemo(); limparSessao(); st.sel = []; st.minhas = null; st.form = { nome: '', telefone: '', aceite: false, codigo: '' }; ir('acesso'); } }, 'Reiniciar demonstração') : null);
   };
 

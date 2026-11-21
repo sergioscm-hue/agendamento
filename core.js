@@ -270,6 +270,7 @@
     const p = req.token ? ctx.verificar(req.token) : null;
     if (!p || p.exp < ctx.agora().epoch || p.pid !== pr.id) falha('sessao_expirada', 'Sessão expirada. Entre novamente.');
     if (tipo && p.k !== tipo) falha('nao_autorizado', 'Acesso não autorizado.');
+    if (p.k === 'cli' && !store.rows('Clientes').some((c) => c.id === p.cid)) falha('sessao_expirada', 'Sessão expirada. Entre novamente.');
     return { pr: pr, sessao: p };
   }
 
@@ -419,6 +420,42 @@
     const { pr, sessao } = autenticar(req, store, ctx, 'cli');
     store.remove('Ofertas', (o) => o.prestador_id === pr.id && o.cliente_id === sessao.cid);
     return { removido: true };
+  };
+
+  // exclusão da conta e dos dados pessoais do cliente (LGPD, art. 18): apaga cadastro, vínculos, preferências, aparelhos e códigos;
+  // cancela reservas futuras; nas reservas passadas troca o cliente por 'EXCLUIDO' (o estabelecimento mantém só o histórico, sem identificação)
+  const CLIENTE_EXCLUIDO = 'EXCLUIDO';
+  ACOES.excluirConta = (req, store, ctx) => {
+    const { sessao } = autenticar(req, store, ctx, 'cli');
+    if (req.confirmar !== true) falha('confirmacao_obrigatoria', 'Confirme a exclusão da conta.');
+    return ctx.travar(() => {
+      const cid = sessao.cid;
+      const cli = store.rows('Clientes').find((c) => c.id === cid);
+      const ag = ctx.agora();
+      const carimbo = ag.data + ' ' + hm(ag.min);
+      let canceladas = 0;
+      store.rows('Reservas').filter((r) => r.cliente_id === cid && r.status === 'agendado').forEach((r) => {
+        const its = store.rows('Itens').filter((i) => i.protocolo === r.protocolo);
+        const ultimo = its.map((i) => min(i.fim)).sort((a, b) => b - a)[0];
+        const passou = r.data < ag.data || (r.data === ag.data && ultimo != null && ultimo <= ag.min);
+        if (passou) return;
+        store.update('Reservas', (x) => x.protocolo === r.protocolo, { status: 'cancelado', cancelado_em: carimbo, cancelado_por: 'cliente', cancelado_motivo: 'Conta excluída pelo cliente' });
+        store.update('Itens', (i) => i.protocolo === r.protocolo && i.status === 'agendado', { status: 'cancelado' });
+        canceladas++;
+      });
+      store.update('Reservas', (r) => r.cliente_id === cid, { cliente_id: CLIENTE_EXCLUIDO, mensagem_cliente: '', mensagem_em: '' });
+      store.update('Itens', (i) => i.cliente_id === cid, { cliente_id: CLIENTE_EXCLUIDO });
+      store.remove('Vinculos', (v) => v.cliente_id === cid);
+      store.remove('Ofertas', (o) => o.cliente_id === cid);
+      store.remove('Dispositivos', (d) => d.cliente_id === cid);
+      if (cli) {
+        const tel = String(cli.telefone);
+        store.remove('Codigos', (c) => String(c.telefone) === tel);
+        store.remove('Mensagens', (m) => String(m.telefone) === tel);
+        store.remove('Clientes', (c) => c.id === cid);
+      }
+      return { excluido: true, reservasCanceladas: canceladas };
+    });
   };
 
   // contagem anônima de uso como app instalado: só data, estabelecimento e tipo, sem qualquer dado do cliente
@@ -774,7 +811,7 @@
         id: p.id, nome: p.nome,
         itens: itens.filter((i) => i.profissional_id === p.id).sort((a, b) => a.ini.localeCompare(b.ini)).map((i) => ({
           id: i.id, protocolo: i.protocolo, ini: i.ini, fim: i.fim, status: i.status, servico: servs[i.servico_id],
-          cliente: clis[i.cliente_id] ? clis[i.cliente_id].nome : '', telefone: clis[i.cliente_id] ? String(clis[i.cliente_id].telefone) : '',
+          cliente: clis[i.cliente_id] ? clis[i.cliente_id].nome : (i.cliente_id === 'EXCLUIDO' ? 'Cliente removido' : ''), telefone: clis[i.cliente_id] ? String(clis[i.cliente_id].telefone) : '',
           mensagem: msgs[i.protocolo] || '',
           outrosServicos: store.rows('Itens').filter((o) => o.protocolo === i.protocolo && o.id !== i.id && o.status !== 'cancelado').length
         })),
@@ -892,7 +929,7 @@
     const ids = Object.keys(unicos);
     const dias = [0, 0, 0, 0, 0, 0, 0]; validos.forEach((i) => { dias[diaSemana(i.data)]++; });
     const motivos = {}; cancelados.forEach((i) => { const m = String(i.cancelado_motivo || '').trim() || '(sem motivo informado)'; motivos[m] = (motivos[m] || 0) + 1; });
-    const nomeCli = (id) => (clis[id] ? clis[id].nome : '');
+    const nomeCli = (id) => (clis[id] ? clis[id].nome : (id === 'EXCLUIDO' ? 'Cliente removido' : ''));
     return {
       de: per.de, ate: per.ate, escopo: gestor ? 'equipe' : 'proprio',
       profissionais: gestor ? Object.keys(profs).filter((id) => profsAtivos[id]).map((id) => ({ id: id, nome: profs[id] })) : [],
