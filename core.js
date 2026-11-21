@@ -25,7 +25,7 @@
     Clientes: ['id', 'telefone', 'nome', 'criado_em', 'consent_versao', 'consent_em'],
     Vinculos: ['cliente_id', 'prestador_id', 'desde'],
     Reservas: ['protocolo', 'prestador_id', 'cliente_id', 'data', 'status', 'criado_em', 'cancelado_em', 'cancelado_por', 'cancelado_motivo'],
-    Itens: ['id', 'protocolo', 'prestador_id', 'profissional_id', 'servico_id', 'cliente_id', 'data', 'ini', 'fim', 'ocup_fim', 'status'],
+    Itens: ['id', 'protocolo', 'prestador_id', 'profissional_id', 'servico_id', 'cliente_id', 'data', 'ini', 'fim', 'ocup_fim', 'status', 'cancelado_motivo'],
     Codigos: ['telefone', 'codigo_hash', 'expira_em', 'tentativas'],
     Mensagens: ['quando', 'telefone', 'canal', 'texto', 'status'],
     Config: ['chave', 'valor'],
@@ -533,9 +533,9 @@
   const USUARIO_RE = /^[a-z0-9._-]{3,30}$/;
   const MAX_TENTATIVAS = 5, BLOQUEIO_MIN = 10;
   const MODELOS_PADRAO = [
-    'Prezado(a) {nome}, infelizmente não poderemos atendê-lo(a) em {data}, às {hora}, por motivo de força maior. Pedimos desculpas pelo transtorno.',
-    'Prezado(a) {nome}, precisamos cancelar o seu atendimento de {data}, às {hora}, devido a um imprevisto. Pedimos desculpas e ficamos à disposição para remarcar.',
-    'Prezado(a) {nome}, por motivo de saúde do(a) profissional não conseguiremos realizar o seu atendimento de {data}, às {hora}. Pedimos desculpas e teremos prazer em reagendar.'
+    'Prezado(a) {nome}, infelizmente não poderemos atendê-lo(a) no serviço {servico} em {data}, às {hora}, por motivo de força maior. Pedimos desculpas pelo transtorno.',
+    'Prezado(a) {nome}, precisamos cancelar o seu atendimento ({servico}) de {data}, às {hora}, devido a um imprevisto. Pedimos desculpas e ficamos à disposição para remarcar.',
+    'Prezado(a) {nome}, por motivo de saúde do(a) profissional não conseguiremos realizar o seu atendimento ({servico}) de {data}, às {hora}. Pedimos desculpas e teremos prazer em reagendar.'
   ];
 
   function sessaoPainel(ctx, pr, u) {
@@ -602,7 +602,8 @@
         id: p.id, nome: p.nome,
         itens: itens.filter((i) => i.profissional_id === p.id).sort((a, b) => a.ini.localeCompare(b.ini)).map((i) => ({
           id: i.id, protocolo: i.protocolo, ini: i.ini, fim: i.fim, status: i.status, servico: servs[i.servico_id],
-          cliente: clis[i.cliente_id] ? clis[i.cliente_id].nome : '', telefone: clis[i.cliente_id] ? String(clis[i.cliente_id].telefone) : ''
+          cliente: clis[i.cliente_id] ? clis[i.cliente_id].nome : '', telefone: clis[i.cliente_id] ? String(clis[i.cliente_id].telefone) : '',
+          outrosServicos: store.rows('Itens').filter((o) => o.protocolo === i.protocolo && o.id !== i.id && o.status !== 'cancelado').length
         })),
         bloqueios: bloqueios.filter((b) => b.profissional_id === p.id || b.profissional_id === '*').map((b) => ({ ini: b.inicio, fim: b.fim, motivo: b.motivo }))
       }))
@@ -610,19 +611,33 @@
   };
 
   // --- cancelamento com mensagem ao cliente ---
+  // Por padrão cancela-se UM serviço (o do cartão). Só o gestor pode cancelar o protocolo inteiro.
   const primeiroNome = (n) => String(n || '').trim().split(/\s+/)[0] || 'cliente';
-  function dadosReserva(store, pr, protocolo, u) {
+  function dadosCancelamento(store, pr, req, u) {
+    const nomesS = {}; store.rows('Servicos').forEach((x) => { nomesS[x.id] = x.nome; });
+    let alvo, protocolo;
+    if (req.itemId) {
+      const it = store.rows('Itens').find((i) => i.id === req.itemId && i.prestador_id === pr.id);
+      if (!it) falha('item_inexistente', 'Serviço não encontrado.');
+      if (it.status === 'cancelado') falha('reserva_ja_cancelada', 'Este serviço já foi cancelado.');
+      if (!itemPermitido(u, it)) falha('item_inexistente', 'Serviço não encontrado.');
+      alvo = [it]; protocolo = it.protocolo;
+    } else {
+      exigirGestor(u);
+      protocolo = req.protocolo;
+      alvo = store.rows('Itens').filter((i) => i.protocolo === protocolo && i.prestador_id === pr.id && i.status !== 'cancelado');
+      if (!alvo.length) falha('reserva_ja_cancelada', 'Esta reserva não está ativa.');
+    }
     const r = store.rows('Reservas').find((x) => x.protocolo === protocolo && x.prestador_id === pr.id);
     if (!r) falha('reserva_inexistente', 'Reserva não encontrada.');
-    const itens = store.rows('Itens').filter((i) => i.protocolo === protocolo);
-    if (u.papel !== 'gestor' && (!itens.length || itens.some((i) => i.profissional_id !== u.prof))) {
-      falha('reserva_de_outro_profissional', 'Este agendamento inclui serviços de outro profissional. Peça ao gestor para cancelá-lo.');
-    }
     const cli = store.rows('Clientes').find((c) => c.id === r.cliente_id) || {};
-    const ini = itens.map((i) => i.ini).sort()[0] || '';
-    return { r: r, itens: itens, cli: cli, vars: { nome: primeiroNome(cli.nome), data: dataBR(r.data), hora: ini, protocolo: protocolo, estabelecimento: pr.nome } };
+    alvo.sort((a, b) => a.ini.localeCompare(b.ini));
+    return {
+      r: r, alvo: alvo, cli: cli, protocolo: protocolo,
+      vars: { nome: primeiroNome(cli.nome), data: dataBR(r.data), hora: alvo[0].ini, servico: alvo.map((i) => nomesS[i.servico_id]).join(' + '), protocolo: protocolo, estabelecimento: pr.nome }
+    };
   }
-  const aplicarModelo = (txt, v) => String(txt).replace(/\{(nome|data|hora|protocolo|estabelecimento)\}/g, (m, k) => v[k] || '');
+  const aplicarModelo = (txt, v) => String(txt).replace(/\{(nome|data|hora|servico|protocolo|estabelecimento)\}/g, (m, k) => v[k] || '');
   function modelosDoPrestador(store, pr) {
     const proprios = store.rows('Modelos').filter((m) => m.prestador_id === pr.id && ativo(m));
     return proprios.length ? proprios.map((m) => ({ id: m.id, texto: m.texto })) : MODELOS_PADRAO.map((t, i) => ({ id: 'M' + (i + 1), texto: t }));
@@ -630,25 +645,37 @@
 
   ACOES.painelModelos = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
-    const d = dadosReserva(store, pr, req.protocolo, u);
-    return { modelos: modelosDoPrestador(store, pr).map((m) => ({ id: m.id, texto: aplicarModelo(m.texto, d.vars) })), cliente: d.vars.nome };
+    const d = dadosCancelamento(store, pr, req, u);
+    return { modelos: modelosDoPrestador(store, pr).map((m) => ({ id: m.id, texto: aplicarModelo(m.texto, d.vars) })), cliente: d.vars.nome, servico: d.vars.servico, hora: d.vars.hora };
   };
 
   ACOES.painelCancelar = (req, store, ctx) => {
     const { pr, u } = autenticarPainel(req, store, ctx);
     if (!u.canc) falha('sem_permissao', 'Você não tem permissão para cancelar agendamentos.');
-    const d = dadosReserva(store, pr, req.protocolo, u);
+    const d = dadosCancelamento(store, pr, req, u);
     const modelo = req.modeloId ? modelosDoPrestador(store, pr).find((m) => m.id === req.modeloId) : null;
     if (req.modeloId && !modelo) falha('modelo_invalido', 'Mensagem pronta inválida.');
     const livre = String(req.texto || '').trim().slice(0, 300);
     if (!modelo && !livre) falha('motivo_obrigatorio', 'Escolha uma mensagem pronta ou escreva o motivo do cancelamento.');
-    const texto = modelo
+    const texto = (modelo
       ? aplicarModelo(modelo.texto, d.vars) + (livre ? ' ' + livre : '')
-      : 'Prezado(a) ' + d.vars.nome + ', o seu agendamento ' + d.vars.protocolo + ' de ' + d.vars.data + ', às ' + d.vars.hora + ', em ' + pr.nome + ', foi cancelado. Motivo: ' + livre;
-    cancelarInterno(store, ctx, pr, req.protocolo, u.papel === 'gestor' ? 'prestador' : 'profissional', false, texto.slice(0, 500));
+      : 'Prezado(a) ' + d.vars.nome + ', o seu atendimento (' + d.vars.servico + ') de ' + d.vars.data + ', às ' + d.vars.hora + ', em ' + pr.nome + ', foi cancelado. Motivo: ' + livre).slice(0, 500);
+    const quem = u.papel === 'gestor' ? 'prestador' : 'profissional';
+    const resultado = ctx.travar(() => {
+      const ids = d.alvo.map((i) => i.id);
+      const ativos = store.rows('Itens').filter((i) => ids.indexOf(i.id) >= 0 && i.status !== 'cancelado');
+      if (!ativos.length) falha('reserva_ja_cancelada', 'Este serviço já foi cancelado.');
+      store.update('Itens', (i) => ids.indexOf(i.id) >= 0 && i.status !== 'cancelado', { status: 'cancelado', cancelado_motivo: texto });
+      const restantes = store.rows('Itens').filter((i) => i.protocolo === d.protocolo && i.status !== 'cancelado').length;
+      if (!restantes) {
+        const ag2 = ctx.agora();
+        store.update('Reservas', (x) => x.protocolo === d.protocolo, { status: 'cancelado', cancelado_em: ag2.data + ' ' + hm(ag2.min), cancelado_por: quem, cancelado_motivo: texto });
+      }
+      return { reservaEncerrada: !restantes, restantes: restantes };
+    });
     let fila = false;
     if (ctx.enviarMensagem && d.cli.telefone) { try { ctx.enviarMensagem(String(d.cli.telefone), texto, 'whatsapp'); fila = true; } catch (e) { /* não desfaz o cancelamento */ } }
-    return { protocolo: req.protocolo, status: 'cancelado', mensagem: texto, telefone: String(d.cli.telefone || ''), emFila: fila };
+    return { protocolo: d.protocolo, status: 'cancelado', escopo: req.itemId ? 'servico' : 'protocolo', reservaEncerrada: resultado.reservaEncerrada, restantes: resultado.restantes, mensagem: texto, telefone: String(d.cli.telefone || ''), emFila: fila };
   };
 
   ACOES.painelStatus = (req, store, ctx) => {

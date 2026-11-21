@@ -94,17 +94,18 @@
   function mudarData(d) { st.data = d; st.cancel = null; st.aviso = null; st.ag = null; render(); carregar(); }
   function somar(n) { return Core.somarDias(st.data, n); }
 
-  function abrirCancelamento(protocolo) {
-    st.cancel = { protocolo: protocolo, carregando: true, modelos: [], modeloId: '', texto: '', resultado: null };
+  function abrirCancelamento(i) {
+    st.cancel = { protocolo: i.protocolo, itemId: i.id, servico: i.servico, ini: i.ini, outros: i.outrosServicos || 0, todos: false, carregando: true, modelos: [], modeloId: '', texto: '', resultado: null };
     render();
-    chamar({ action: 'painelModelos', protocolo: protocolo }).then(function (r) {
+    chamar({ action: 'painelModelos', itemId: i.id }).then(function (r) {
       if (!r.ok) { st.cancel = null; st.aviso = { tipo: 'erro', texto: r.mensagem }; render(); return; }
       st.cancel.carregando = false; st.cancel.modelos = r.data.modelos; st.cancel.cliente = r.data.cliente; render();
     });
   }
   function confirmarCancelamento() {
     var c = st.cancel;
-    chamar({ action: 'painelCancelar', protocolo: c.protocolo, modeloId: c.modeloId, texto: c.texto }).then(function (r) {
+    var alvo = c.todos ? { protocolo: c.protocolo } : { itemId: c.itemId };
+    chamar(Object.assign({ action: 'painelCancelar', modeloId: c.modeloId, texto: c.texto }, alvo)).then(function (r) {
       if (!r.ok) { st.aviso = { tipo: 'erro', texto: r.mensagem }; render(); return; }
       c.resultado = r.data; st.aviso = null; render();
     });
@@ -113,8 +114,12 @@
     var c = st.cancel;
     if (c.resultado) {
       var wa = 'https://wa.me/' + c.resultado.telefone + '?text=' + encodeURIComponent(c.resultado.mensagem);
-      return h('div', { class: 'cancelar-box' }, h('h4', {}, 'Agendamento cancelado'),
-        h('div', { class: 'msg ok', style: 'margin:.3rem 0' }, 'O horário foi liberado.'),
+      var res = c.resultado;
+      var resumo = res.escopo === 'servico' && !res.reservaEncerrada
+        ? 'Serviço cancelado e horário liberado. O protocolo continua com ' + res.restantes + ' serviço(s).'
+        : 'Cancelado e horário liberado.';
+      return h('div', { class: 'cancelar-box' }, h('h4', {}, res.escopo === 'servico' ? 'Serviço cancelado' : 'Protocolo cancelado'),
+        h('div', { class: 'msg ok', style: 'margin:.3rem 0' }, resumo),
         h('p', { class: 'pequeno' }, 'Mensagem ao cliente:'), h('div', { class: 'previa' }, c.resultado.mensagem),
         h('div', { class: 'acoes' },
           h('a', { class: 'btn mini', href: wa, target: '_blank', rel: 'noopener' }, 'Enviar pelo WhatsApp'),
@@ -124,7 +129,10 @@
     var ta = h('textarea', { maxlength: '300', placeholder: 'Complemento ou motivo (opcional se escolher uma mensagem)', oninput: function (e) { c.texto = e.target.value; } });
     ta.value = c.texto;
     return h('div', { class: 'cancelar-box' },
-      h('h4', {}, 'Cancelar ' + i.protocolo + (c.cliente ? ' · ' + c.cliente : '')),
+      h('h4', {}, 'Cancelar ' + c.servico + ' às ' + c.ini + (c.cliente ? ' · ' + c.cliente : '')),
+      c.outros && ehGestor() ? h('label', { class: 'opcao' }, h('input', { type: 'checkbox', checked: c.todos, onchange: function (e) { c.todos = e.target.checked; } }),
+        h('span', {}, 'Cancelar também os outros ' + c.outros + ' serviço(s) deste protocolo (' + i.protocolo + ')')) : null,
+      c.outros && !ehGestor() ? h('p', { class: 'pequeno' }, 'Só este serviço será cancelado. Os demais serviços do protocolo seguem com os outros profissionais.') : null,
       c.carregando ? h('p', { class: 'pequeno' }, 'Carregando mensagens…') : [
         h('p', { class: 'pequeno' }, 'Mensagem ao cliente (escolha uma ou escreva abaixo):'),
         c.modelos.map(function (m) {
@@ -147,7 +155,7 @@
         i.status !== 'realizado' ? h('button', { class: 'btn mini sec', onclick: function () { marcar(i.id, 'realizado'); } }, 'Realizado') : null,
         i.status !== 'faltou' ? h('button', { class: 'btn mini sec', onclick: function () { marcar(i.id, 'faltou'); } }, 'Faltou') : null,
         i.status !== 'agendado' ? h('button', { class: 'btn mini sec', onclick: function () { marcar(i.id, 'agendado'); } }, 'Desfazer') : null,
-        st.ag.podeCancelar ? h('button', { class: 'btn mini perigo', onclick: function () { abrirCancelamento(i.protocolo); } }, 'Cancelar') : null);
+        st.ag.podeCancelar ? h('button', { class: 'btn mini perigo', onclick: function () { abrirCancelamento(i); } }, 'Cancelar') : null);
     }
     return h('div', { class: 'ag' + (cancelado ? ' cancelado' : '') },
       h('div', { class: 'h' }, i.ini + ' – ' + i.fim + '  ', i.status !== 'agendado' ? h('span', { class: 'badge ' + i.status }, i.status) : null),
