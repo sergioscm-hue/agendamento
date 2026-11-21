@@ -122,9 +122,10 @@
           h('button', { class: 'btn sec', onclick: function () {
             // registra de novo o aparelho (se a linha sumiu da planilha) e só então envia o teste
             chamar({ action: 'pushRegistrar', dispositivo: pushToken() }).then(function (reg) {
-              if (!reg.ok) { desenhar('Teste v3: falhou ao registrar o aparelho (' + (reg.mensagem || reg.erro || '?') + ').'); return; }
+              if (!reg.ok) { desenhar('Teste v4: falhou ao registrar o aparelho (' + (reg.mensagem || reg.erro || '?') + ').'); return; }
               return chamar({ action: 'pushTeste', dispositivo: pushToken() }).then(function (r) {
-                desenhar(r.ok && r.enviado ? 'Teste v3: enviado. A notificação deve chegar em instantes.' : 'Teste v3: ' + (r.mensagem || r.motivo || 'não foi possível enviar.'));
+                var bruto = ''; try { bruto = JSON.stringify(r).slice(0, 300); } catch (e) { /* ignore */ }
+                desenhar((r.ok && r.enviado ? 'Teste v4: enviado. A notificação deve chegar em instantes. ' : 'Teste v4: não enviado. ') + 'Resposta: ' + bruto);
               });
             });
           } }, 'Testar lembrete agora')];
